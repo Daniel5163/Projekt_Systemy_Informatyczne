@@ -1,0 +1,2 @@
+police_man,password123,man
+police_chief,chiefpassword,chief
