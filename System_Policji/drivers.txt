@@ -1,2 +1,2 @@
-123456789,Jan,Kowalski,no,0
+123456789,Jan,Kowalski,no,27
 987654321,Aleksandra,Nowak,yes,12

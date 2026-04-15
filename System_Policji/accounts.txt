@@ -1,2 +1,3 @@
-police_man,password123,man
-police_chief,chiefpassword,chief
+police_man,123,man
+police_chief,123,chief
+obywatel,123,citizen
