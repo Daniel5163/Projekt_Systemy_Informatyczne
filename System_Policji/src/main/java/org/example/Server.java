@@ -7,8 +7,19 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.sql.*;
+
 public class Server {
     public static void main(String[] args) {
+
+        try {
+            var conn = DataBase.connect();
+            System.out.println("POŁĄCZONO Z MYSQL!");
+        } catch (Exception e) {
+            System.out.println("BŁĄD MYSQL");
+            e.printStackTrace();
+        }
+
         new AuthServer().start();
     }
 }
@@ -18,7 +29,7 @@ class AuthServer {
 
     private final UserManager userManager = new UserManager();
     private final DriverManager driverManager = new DriverManager();
-    private final TicketManager ticketManager = new TicketManager(driverManager);
+    private final TicketManager ticketManager = new TicketManager();
     private final MessageManager messageManager = new MessageManager();
     private final ReportManager reportManager = new ReportManager();
     private final PlateManager plateManager = new PlateManager();
@@ -29,7 +40,6 @@ class AuthServer {
 
     public void start() {
         userManager.load();
-        driverManager.load();
 
         try (ServerSocket server = new ServerSocket(PORT)) {
             System.out.println("Server działa na porcie " + PORT);
@@ -85,6 +95,12 @@ class AuthServer {
 
                 case "CHECK_USER" -> out.println("SUCCESS:OK");
 
+                case "GET_PENDING_USERS" -> userManager.getPending(t, out);
+                case "APPROVE_USER" -> userManager.approveUser(t, out);
+
+                case "GET_ALL_USERS" -> userManager.getAllUsers(t, out);
+                case "DELETE_USER" -> userManager.deleteUser(t, out);
+
                 default -> out.println("ERROR");
 
             }
@@ -101,6 +117,8 @@ class UserManager {
     private final Map<String, String> role = new ConcurrentHashMap<>();
     private final Map<String, Boolean> logged = new ConcurrentHashMap<>();
 
+    private final List<String[]> pendingUsers = new ArrayList<>();
+
     public void load() {
         try {
             Path p = Paths.get("accounts.txt");
@@ -111,24 +129,51 @@ class UserManager {
                         "policja,123,man",
                         "jan,123,citizen"
                 ));
-
             }
 
             for (String l : Files.readAllLines(p)) {
                 String[] s = l.split(",");
+
                 pass.put(s[0], s[1]);
                 role.put(s[0], s[2]);
                 logged.put(s[0], false);
             }
-        } catch (IOException e) { }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public void login(String[] t, PrintWriter out) {
-        if (pass.containsKey(t[1]) && pass.get(t[1]).equals(t[2])) {
-            logged.put(t[1], true);
-            out.println("SUCCESS:" + role.get(t[1]));
-        } else {
-            out.println("ERROR:Login");
+
+        try (Connection conn = DataBase.connect()) {
+
+            String sql = "SELECT password, role FROM users WHERE username = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, t[1]);
+
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next()) {
+
+                String dbPass = rs.getString("password");
+                String dbRole = rs.getString("role");
+
+                if (dbPass.equals(t[2])) {
+                    logged.put(t[1], true);
+                    role.put(t[1], dbRole);
+                    out.println("SUCCESS:" + dbRole);
+                } else {
+                    out.println("ERROR:Login");
+                }
+
+            } else {
+                out.println("ERROR:Brak użytkownika");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
@@ -138,20 +183,72 @@ class UserManager {
     }
 
     public void addUser(String[] t, PrintWriter out) {
-        if (!logged(t[1]) || !isChief(t[1])) {
+
+        String newUser = t[2];
+        String password = t[3];
+        String roleNew = t[4];
+
+        pendingUsers.add(new String[]{newUser, password, roleNew});
+
+        out.println("SUCCESS:Zgłoszenie wysłane do komendanta");
+    }
+
+    public void approveUser(String[] t, PrintWriter out) {
+
+        String chief = t[1];
+        String userToApprove = t[2];
+
+        if (!logged(chief) || !isChief(chief)) {
             out.println("ERROR:Tylko komendant");
             return;
         }
 
-        pass.put(t[2], t[3]);
-        role.put(t[2], t[4]);
-        logged.put(t[2], false);
-        save();
+        Iterator<String[]> it = pendingUsers.iterator();
 
-        out.println("SUCCESS:Dodano");
+        while (it.hasNext()) {
+
+            String[] u = it.next();
+
+            if (u[0].equals(userToApprove)) {
+
+                String username = u[0];
+                String password = u[1];
+                String roleNew = u[2];
+
+                try (Connection conn = DataBase.connect()) {
+
+                    String sql = "INSERT INTO users(username, password, role) VALUES (?, ?, ?)";
+                    PreparedStatement ps = conn.prepareStatement(sql);
+
+                    ps.setString(1, username);
+                    ps.setString(2, password);
+                    ps.setString(3, roleNew);
+
+                    ps.executeUpdate();
+
+                    pass.put(username, password);
+                    role.put(username, roleNew);
+                    logged.put(username, false);
+
+                    it.remove();
+
+                    out.println("SUCCESS:Użytkownik dodany do bazy i zatwierdzony");
+
+                    return;
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    out.println("ERROR:Błąd bazy danych");
+                    return;
+                }
+            }
+        }
+
+        out.println("ERROR:Nie znaleziono w oczekujących");
     }
 
     public void removeUser(String[] t, PrintWriter out) {
+
         if (!logged(t[1]) || !isChief(t[1])) {
             out.println("ERROR:Tylko komendant");
             return;
@@ -160,6 +257,7 @@ class UserManager {
         pass.remove(t[2]);
         role.remove(t[2]);
         logged.remove(t[2]);
+
         save();
 
         out.println("SUCCESS:Usunięto");
@@ -168,11 +266,16 @@ class UserManager {
     private void save() {
         try {
             List<String> l = new ArrayList<>();
+
             for (String u : pass.keySet()) {
                 l.add(u + "," + pass.get(u) + "," + role.get(u));
             }
+
             Files.write(Paths.get("accounts.txt"), l);
-        } catch (IOException e) {}
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public boolean logged(String u) {
@@ -195,233 +298,228 @@ class UserManager {
     public Set<String> users() {
         return pass.keySet();
     }
+
+    public void getPending(String[] t, PrintWriter out) {
+
+        String user = t[1];
+
+        if (!logged(user) || !isChief(user)) {
+            out.println("ERROR:Tylko komendant");
+            return;
+        }
+
+        if (pendingUsers.isEmpty()) {
+            out.println("SUCCESS:");
+            return;
+        }
+
+        List<String> list = new ArrayList<>();
+
+        for (String[] u : pendingUsers) {
+            list.add(u[0] + " | " + u[2]);
+        }
+
+        out.println("SUCCESS:" + String.join(";;", list));
+    }
+
+    public void getAllUsers(String[] t, PrintWriter out) {
+
+        String chief = t[1];
+
+        if (!logged(chief) || !isChief(chief)) {
+            out.println("ERROR:Tylko komendant");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            String sql = "SELECT username, role FROM users";
+            PreparedStatement ps = conn.prepareStatement(sql);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> users = new ArrayList<>();
+
+            while (rs.next()) {
+                String u = rs.getString("username");
+                String r = rs.getString("role");
+
+                users.add(u + " | " + r);
+            }
+
+            out.println("SUCCESS:" + String.join(";;", users));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
+        }
+    }
+
+    public void deleteUser(String[] t, PrintWriter out) {
+
+        String chief = t[1];
+        String userToDelete = t[2];
+
+        if (!logged(chief) || !isChief(chief)) {
+            out.println("ERROR:Tylko komendant");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            String sql = "DELETE FROM users WHERE username = ?";
+            PreparedStatement ps = conn.prepareStatement(sql);
+
+            ps.setString(1, userToDelete);
+
+            int rows = ps.executeUpdate();
+
+            if (rows > 0) {
+                pass.remove(userToDelete);
+                role.remove(userToDelete);
+                logged.remove(userToDelete);
+
+                out.println("SUCCESS:Użytkownik usunięty");
+            } else {
+                out.println("ERROR:Nie znaleziono użytkownika");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
+        }
+    }
+
+
 }
 
 class DriverManager {
 
-    private static final String FILE = "drivers.txt";
-    private static final String TICKETS_FILE = "tickets.txt";
-
-    static class Driver {
-        String id;
-        String name;
-        String surname;
-        boolean warrant;
-
-        Driver(String id, String name, String surname, boolean warrant) {
-            this.id = id;
-            this.name = name;
-            this.surname = surname;
-            this.warrant = warrant;
-        }
-    }
-
-    private final Map<String, Driver> drivers = new HashMap<>();
-
-    public void load() {
-        try {
-            Path p = Paths.get(FILE);
-
-            if (!Files.exists(p)) {
-                Files.write(p, List.of(
-                        "123456789,Jan,Kowalski,no",
-                        "987654321,Aleksandra,Nowak,yes"
-                ));
-            }
-
-            drivers.clear();
-
-            for (String l : Files.readAllLines(p)) {
-                String[] s = l.split(",");
-
-                if (s.length < 4) continue;
-
-                Driver d = new Driver(
-                        s[0],
-                        s[1],
-                        s[2],
-                        s[3].equalsIgnoreCase("yes")
-                );
-
-                drivers.put(d.id, d);
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    public int calculatePoints(String driverId) {
-        int sum = 0;
-
-        try {
-            Path p = Paths.get(TICKETS_FILE);
-
-            if (!Files.exists(p)) return 0;
-
-            for (String line : Files.readAllLines(p)) {
-                Ticket t = Ticket.fromLine(line);
-
-                if (t.getDriverId().equals(driverId)) {
-                    sum += t.getPoints();
-                }
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        return sum;
-    }
-
     public void checkDriver(String[] t, PrintWriter out, UserManager u) {
+
         if (!u.logged(t[1])) {
             out.println("ERROR:Nie zalogowany");
             return;
         }
 
-        Driver d = drivers.get(t[2]);
+        try (Connection conn = DataBase.connect()) {
 
-        if (d == null) {
-            out.println("ERROR:Brak kierowcy");
-            return;
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM drivers WHERE id = ?"
+            );
+
+            ps.setString(1, t[2]);
+
+            ResultSet rs = ps.executeQuery();
+
+            if (!rs.next()) {
+                out.println("ERROR:Brak kierowcy");
+                return;
+            }
+
+            String driverId = rs.getString("id");
+            String name = rs.getString("name");
+            String surname = rs.getString("surname");
+            boolean warrant = rs.getBoolean("warrant");
+
+            PreparedStatement ps2 = conn.prepareStatement(
+                    "SELECT COALESCE(SUM(points),0) FROM tickets WHERE driver_id = ?"
+            );
+
+            ps2.setString(1, driverId);
+
+            ResultSet rs2 = ps2.executeQuery();
+            int points = rs2.next() ? rs2.getInt(1) : 0;
+
+            String status = warrant ? "UWAGA: Poszukiwany!" : "OK";
+
+            out.println("SUCCESS:" +
+                    name + " " + surname +
+                    " | Punkty: " + points +
+                    " | " + status);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
-
-        int points = calculatePoints(d.id);
-
-        String status = d.warrant ?
-                "UWAGA: Poszukiwany!" :
-                "OK";
-
-        out.println("SUCCESS:" +
-                d.name + " " + d.surname +
-                " | Punkty: " + points +
-                " | " + status);
-    }
-
-    public Driver getDriver(String id) {
-        return drivers.get(id);
     }
 }
 
-class TicketManager {
+    class TicketManager {
 
-    private static final String FILE = "tickets.txt";
-    private final DriverManager driverManager;
-
-    public TicketManager(DriverManager driverManager) {
-        this.driverManager = driverManager;
-    }
-
-    public void issue(String[] t, PrintWriter out, UserManager u) {
+        public void issue(String[] t, PrintWriter out, UserManager u) {
 
         if (t.length < 7) {
-            out.println("ERROR: format user ticketId driverId points fine reason");
+            out.println("ERROR:format");
             return;
         }
 
         String user = t[1];
-        String ticketId = t[2];
-        String driverId = t[3];
-
-        int points;
-        try {
-            points = Integer.parseInt(t[4]);
-        } catch (Exception e) {
-            out.println("ERROR: punkty muszą być liczbą");
-            return;
-        }
-
-        String fine = t[5];
-        String reason = t[6];
 
         if (!u.logged(user) || !u.isPolice(user)) {
             out.println("ERROR:Brak dostępu");
             return;
         }
 
-        try {
-            if (Files.exists(Paths.get(FILE))) {
-                for (String line : Files.readAllLines(Paths.get(FILE))) {
-                    if (line.startsWith(ticketId + ",")) {
-                        out.println("ERROR: ID już istnieje");
-                        return;
-                    }
-                }
-            }
-        } catch (IOException e) {
-            out.println("ERROR:Plik");
-            return;
-        }
+        String id = t[2];
+        String driverId = t[3];
+        int points = Integer.parseInt(t[4]);
+        String fine = t[5];
+        String reason = t[6];
 
-        Ticket ticket = new Ticket(
-                ticketId,
-                driverId,
-                user,
-                points,
-                reason,
-                false
-        );
+        try (Connection conn = DataBase.connect()) {
 
-        save(ticket);
-
-        out.println("SUCCESS:Mandat wystawiony ID=" + ticketId);
-    }
-
-    private void save(Ticket ticket) {
-        try {
-            Files.write(
-                    Paths.get(FILE),
-                    (ticket.toFileLine() + System.lineSeparator()).getBytes(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND
+            PreparedStatement check = conn.prepareStatement(
+                    "SELECT id FROM tickets WHERE id = ?"
             );
-        } catch (IOException e) {
+            check.setString(1, id);
+
+            if (check.executeQuery().next()) {
+                out.println("ERROR:ID istnieje");
+                return;
+            }
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO tickets VALUES (?, ?, ?, ?, ?, false)"
+            );
+
+            ps.setString(1, id);
+            ps.setString(2, driverId);
+            ps.setString(3, user);
+            ps.setInt(4, points);
+            ps.setString(5, reason);
+
+            ps.executeUpdate();
+
+            out.println("SUCCESS:Mandat wystawiony");
+
+        } catch (Exception e) {
             e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
     public void pay(String[] t, PrintWriter out) {
 
-        String ticketId = t[1];
+        try (Connection conn = DataBase.connect()) {
 
-        try {
-            if (!Files.exists(Paths.get(FILE))) {
-                out.println("ERROR:Brak mandatów");
-                return;
-            }
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE tickets SET paid = true WHERE id = ?"
+            );
 
-            List<Ticket> updated = new ArrayList<>();
-            boolean found = false;
+            ps.setString(1, t[1]);
 
-            for (String line : Files.readAllLines(Paths.get(FILE))) {
+            int rows = ps.executeUpdate();
 
-                Ticket ticket = Ticket.fromLine(line);
-
-                if (ticket.getId().equals(ticketId)) {
-                    ticket.setPaid(true);
-                    found = true;
-                }
-
-                updated.add(ticket);
-            }
-
-            if (!found) {
+            if (rows == 0) {
                 out.println("ERROR:Nie znaleziono mandatu");
-                return;
+            } else {
+                out.println("SUCCESS:Opłacono mandat");
             }
-
-            List<String> lines = new ArrayList<>();
-            for (Ticket tck : updated) {
-                lines.add(tck.toFileLine());
-            }
-
-            Files.write(Paths.get(FILE), lines);
-
-            out.println("Opłacono mandat");
 
         } catch (Exception e) {
-            out.println("ERROR");
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 }
@@ -593,7 +691,6 @@ class PatrolManager {
         }
     }
 
-    // przypisanie patrolu
     public void assign(String[] t, PrintWriter out, UserManager u) {
 
         if (t.length != 3) {
@@ -709,126 +806,119 @@ class ReportManager {
 
 class CitizenManager {
 
-    private static final String FILE = "tickets.txt";
+    public void getPoints(String[] t, PrintWriter out, DriverManager driverManager) {
 
-    public void getPoints(String[] t, PrintWriter out, DriverManager dm) {
+        try (Connection conn = DataBase.connect()) {
 
-        String id = t[1];
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COALESCE(SUM(points),0) FROM tickets WHERE driver_id = ?"
+            );
 
-        int points = dm.calculatePoints(id);
+            ps.setString(1, t[1]);
 
-        out.println("SUCCESS:Punkty=" + points);
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next()) {
+                out.println("SUCCESS:Punkty=" + rs.getInt(1));
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
     }
 
     public void getTickets(String[] t, PrintWriter out) {
 
-        String driverId = t[1];
+        try (Connection conn = DataBase.connect()) {
 
-        try {
-            Path p = Paths.get(FILE);
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM tickets WHERE driver_id = ?"
+            );
 
-            if (!Files.exists(p)) {
-                out.println("EMPTY:Brak mandatów w systemie");
-                return;
+            ps.setString(1, t[1]);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+                list.add(
+                        rs.getString("id") + "," +
+                                rs.getString("driver_id") + "," +
+                                rs.getInt("points") + "," +
+                                rs.getString("reason") + "," +
+                                rs.getBoolean("paid")
+                );
             }
 
-            List<String> result = new ArrayList<>();
-
-            for (String line : Files.readAllLines(p)) {
-                Ticket ticket = Ticket.fromLine(line);
-
-                if (ticket.getDriverId().equals(driverId)) {
-                    result.add(line);
-                }
-            }
-
-            if (result.isEmpty()) {
-                out.println("EMPTY:Nie masz żadnych mandatów");
+            if (list.isEmpty()) {
+                out.println("EMPTY:Brak mandatów");
             } else {
-                out.println("SUCCESS:" + String.join(";;", result));
+                out.println("SUCCESS:" + String.join(";;", list));
             }
 
         } catch (Exception e) {
-            out.println("ERROR:Błąd pobierania mandatów");
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
     public void payTicket(String[] t, PrintWriter out) {
 
-        String ticketId = t[1];
+        try (Connection conn = DataBase.connect()) {
 
-        try {
-            Path p = Paths.get(FILE);
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE tickets SET paid = true WHERE id = ?"
+            );
 
-            if (!Files.exists(p)) {
-                out.println("EMPTY:Brak mandatów");
-                return;
+            ps.setString(1, t[1]);
+
+            int rows = ps.executeUpdate();
+
+            if (rows > 0) {
+                out.println("SUCCESS:Opłacono mandat");
+            } else {
+                out.println("ERROR:Nie znaleziono");
             }
-
-            List<Ticket> updated = new ArrayList<>();
-            boolean found = false;
-
-            for (String line : Files.readAllLines(p)) {
-
-                Ticket ticket = Ticket.fromLine(line);
-
-                if (ticket.getId().equals(ticketId)) {
-                    ticket.setPaid(true);
-                    found = true;
-                }
-
-                updated.add(ticket);
-            }
-
-            if (!found) {
-                out.println("ERROR:Nie znaleziono mandatu");
-                return;
-            }
-
-            List<String> lines = new ArrayList<>();
-            for (Ticket tck : updated) {
-                lines.add(tck.toFileLine());
-            }
-
-            Files.write(p, lines);
-
-            out.println("Mandat opłacony");
 
         } catch (Exception e) {
-            out.println("ERROR:Błąd płatności");
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
     public void incidentStatus(String[] t, PrintWriter out) {
 
-        String user = t[1];
+        try (Connection conn = DataBase.connect()) {
 
-        try {
-            Path p = Paths.get("incidents.txt");
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM incidents WHERE user = ?"
+            );
 
-            if (!Files.exists(p)) {
+            ps.setString(1, t[1]);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+                list.add(
+                        rs.getString("date") + "," +
+                                rs.getString("status") + "," +
+                                rs.getString("description")
+                );
+            }
+
+            if (list.isEmpty()) {
                 out.println("EMPTY:Brak zgłoszeń");
-                return;
-            }
-
-            List<String> result = new ArrayList<>();
-
-            for (String line : Files.readAllLines(p)) {
-                if (line.contains(user)) {
-                    result.add(line);
-                }
-            }
-
-            if (result.isEmpty()) {
-                out.println("EMPTY:Brak Twoich zgłoszeń");
             } else {
-                out.println(String.join(";;", result));
+                out.println(String.join(";;", list));
             }
 
         } catch (Exception e) {
-            out.println("ERROR:Problem z incydentami");
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 }
-
-

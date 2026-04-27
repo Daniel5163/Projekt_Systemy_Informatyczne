@@ -1,3 +1,5 @@
-police_man,123,man
-police_chief,123,chief
 obywatel,123,citizen
+Jan,123,man
+Roman,1234,man
+police_chief,123,chief
+police_man,123,man

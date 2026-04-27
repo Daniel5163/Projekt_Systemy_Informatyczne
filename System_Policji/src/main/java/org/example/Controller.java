@@ -44,14 +44,36 @@ public class Controller {
 
     @FXML private TextField citizenIdField;
     @FXML private TextField ticketIdField;
-    @FXML private TextArea citizenOutputArea;
 
     @FXML private TextArea problemReportTextArea;
 
     @FXML private TextField ticketIdFieldPolice;
 
+    @FXML private VBox pendingUsersBox;
+    @FXML private ListView<String> pendingUsersListView;
+    @FXML private TextField approveUserField;
+
+    @FXML private ListView<String> allUsersListView;
+    @FXML private TextField deleteUserField;
+
     private String currentUser;
     private String currentRole;
+
+    private void showPopup(String title, String message) {
+
+        if (message == null) message = "Brak odpowiedzi";
+
+        if (message.startsWith("SUCCESS:")) message = message.substring(8);
+        if (message.startsWith("ERROR:")) message = message.substring(6);
+        if (message.startsWith("WARNING:")) message = message.substring(8);
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+
+        alert.showAndWait();
+    }
 
     @FXML
     protected void onLoginClicked() {
@@ -68,12 +90,11 @@ public class Controller {
             loginPane.setVisible(false);
             contentBox.setVisible(true);
 
-            statusLabel.setText("Zalogowano jako: " + currentRole);
 
             setupUIForRole(currentRole);
 
         } else {
-            statusLabel.setText(res);
+            showPopup("Błąd logowania", res);
         }
     }
 
@@ -86,6 +107,8 @@ public class Controller {
 
         loginPane.setVisible(true);
         contentBox.setVisible(false);
+
+        showPopup("Wylogowano", "Pomyślnie wylogowano");
     }
 
     private void setupUIForRole(String role) {
@@ -112,6 +135,15 @@ public class Controller {
         if ("citizen".equals(role)) {
             citizenBox.setVisible(true);
         }
+
+        if ("chief".equals(role)) {
+            managementBox.setVisible(true);
+            policemanActionsBox.setVisible(true);
+            reportBox.setVisible(true);
+            onRefreshPendingUsers();
+
+            pendingUsersBox.setVisible(true); // 🔥 NOWE
+        }
     }
 
     @FXML
@@ -121,28 +153,31 @@ public class Controller {
                 + newPasswordField.getText() + " "
                 + newRoleField.getValue());
 
-        statusLabel.setText(res);
+        showPopup("Dodawanie użytkownika", res);
     }
 
     @FXML
     protected void removeUser() {
         String res = send("REMOVE_USER " + currentUser + " " + newUserField.getText());
-        statusLabel.setText(res);
+        showPopup("Usuwanie użytkownika", res);
     }
 
     @FXML
     protected void onCheckUserClicked() {
-        statusLabel.setText(send("CHECK_USER " + currentUser + " " + checkUserField.getText()));
+        showPopup("Sprawdzenie użytkownika",
+                send("CHECK_USER " + currentUser + " " + checkUserField.getText()));
     }
 
     @FXML
     protected void onCheckDriverClicked() {
-        statusLabel.setText(send("CHECK_DRIVER " + currentUser + " " + checkDriverIdField.getText()));
+        showPopup("Kierowca",
+                send("CHECK_DRIVER " + currentUser + " " + checkDriverIdField.getText()));
     }
 
     @FXML
     protected void onCheckLicensePlateClicked() {
-        statusLabel.setText(send("CHECK_PLATE " + currentUser + " " + licensePlateField.getText()));
+        showPopup("Pojazd",
+                send("CHECK_PLATE " + currentUser + " " + licensePlateField.getText()));
     }
 
     @FXML
@@ -155,7 +190,7 @@ public class Controller {
         String reason = reasonField.getText();
 
         if (ticketId.isBlank() || driverId.isBlank() || points.isBlank() || fine.isBlank() || reason.isBlank()) {
-            statusLabel.setText("ERROR: Uzupełnij wszystkie pola");
+            showPopup("Błąd", "Uzupełnij wszystkie pola");
             return;
         }
 
@@ -167,24 +202,14 @@ public class Controller {
                 + fine + " "
                 + reason.replace(" ", "_");
 
-        String res = send(cmd);
-        statusLabel.setText(res);
+        showPopup("Mandat", send(cmd));
     }
 
     @FXML
     protected void onSaveReportClicked() {
-        statusLabel.setText(send(
-                "SAVE_REPORT " + currentUser + " " + currentRole + " " +
-                        reportTextArea.getText().replace(" ", "_")
-        ));
-    }
-
-    @FXML
-    protected void onReportProblemClicked() {
-        statusLabel.setText(send(
-                "ADD_INCIDENT " +
-                        problemReportTextArea.getText().replace(" ", "_")
-        ));
+        showPopup("Raport",
+                send("SAVE_REPORT " + currentUser + " " + currentRole + " " +
+                        reportTextArea.getText().replace(" ", "_")));
     }
 
     @FXML
@@ -193,7 +218,7 @@ public class Controller {
                 + recipientComboBox.getValue() + " "
                 + messageTextArea.getText().replace(" ", "_"));
 
-        statusLabel.setText(res);
+        showPopup("Wiadomość", res);
     }
 
     @FXML
@@ -203,14 +228,14 @@ public class Controller {
         if (res.startsWith("SUCCESS:")) {
             messagesListView.getItems().setAll(res.substring(8).split(";;"));
         } else {
-            statusLabel.setText(res);
+            showPopup("Błąd", res);
         }
     }
 
     @FXML
     protected void onGetPointsClicked() {
-        String res = send("GET_POINTS " + citizenIdField.getText());
-        citizenOutputArea.setText(res);
+        showPopup("Punkty",
+                send("GET_POINTS " + citizenIdField.getText()));
     }
 
     @FXML
@@ -218,40 +243,161 @@ public class Controller {
         String res = send("GET_TICKETS " + citizenIdField.getText());
 
         if (!res.startsWith("SUCCESS:")) {
-            citizenOutputArea.setText(res);
+            showPopup("Błąd", res);
             return;
         }
 
         String data = res.substring(8);
 
         if (data.equals("EMPTY") || data.isBlank()) {
-            citizenOutputArea.setText("Brak mandatów 🎉");
+            showPopup("Mandaty", "Brak mandatów 🎉");
             return;
         }
 
-        String[] tickets = data.split(";;");
-
         StringBuilder sb = new StringBuilder();
 
-        for (String t : tickets) {
+        for (String t : data.split(";;")) {
             String[] p = t.split(",");
 
-            sb.append("🧾 Mandat ID: ").append(p[0]).append("\n")
-                    .append("🚗 Kierowca: ").append(p[1]).append("\n")
-                    .append("👮 Wystawił: ").append(p[2]).append("\n")
-                    .append("⚠️ Punkty: ").append(p[3]).append("\n")
-                    .append("💰 Grzywna: ").append(p[4]).append("\n")
-                    .append("💳 Opłacony: ").append(p[5]).append("\n")
-                    .append("----------------------\n");
+            sb.append("ID: ").append(p[0]).append("\n")
+                    .append("Punkty: ").append(p[3]).append("\n")
+                    .append("Powód: ").append(p[4]).append("\n")
+                    .append("Opłacony: ").append(p[5]).append("\n\n");
         }
 
-        citizenOutputArea.setText(sb.toString());
+        showPopup("Twoje mandaty", sb.toString());
+    }
+    @FXML
+    protected void onCreateAccountClicked() {
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Tworzenie konta");
+        dialog.setHeaderText("Wprowadź dane nowego użytkownika");
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        TextField loginField = new TextField();
+        loginField.setPromptText("Login");
+
+        PasswordField passwordField = new PasswordField();
+        passwordField.setPromptText("Hasło");
+
+        ComboBox<String> roleBox = new ComboBox<>();
+        roleBox.getItems().addAll("policjant", "komendant", "obywatel");
+        roleBox.setValue("obywatel");
+
+        VBox vbox = new VBox(10,
+                new Label("Login:"), loginField,
+                new Label("Hasło:"), passwordField,
+                new Label("Rola:"), roleBox
+        );
+
+        dialog.getDialogPane().setContent(vbox);
+
+        dialog.showAndWait().ifPresent(result -> {
+            if (result == ButtonType.OK) {
+
+                String role = switch (roleBox.getValue()) {
+                    case "komendant" -> "chief";
+                    case "policjant" -> "man";
+                    default -> "citizen";
+                };
+
+                String res = send("ADD_USER " + currentUser + " "
+                        + loginField.getText() + " "
+                        + passwordField.getText() + " "
+                        + role);
+
+                showPopup("Tworzenie konta", res);
+            }
+        });
     }
 
     @FXML
     protected void onPayTicketClicked() {
-        String res = send("PAY_TICKET " + ticketIdField.getText());
-        citizenOutputArea.setText(res);
+        showPopup("Płatność",
+                send("PAY_TICKET " + ticketIdField.getText()));
+    }
+
+    @FXML
+    protected void onReportProblemClicked() {
+        showPopup("Zgłoszenie",
+                send("ADD_INCIDENT " +
+                        problemReportTextArea.getText().replace(" ", "_")));
+    }
+
+    @FXML
+    protected void onRefreshPendingUsers() {
+
+        String res = send("GET_PENDING_USERS " + currentUser);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        if (data.isBlank()) {
+            pendingUsersListView.getItems().setAll("Brak oczekujących kont");
+            return;
+        }
+
+        pendingUsersListView.getItems().setAll(data.split(";;"));
+    }
+
+    @FXML
+    protected void onApproveUserClicked() {
+
+        String user = approveUserField.getText();
+
+        if (user.isBlank()) {
+            showPopup("Błąd", "Podaj login");
+            return;
+        }
+
+        String res = send("APPROVE_USER " + currentUser + " " + user);
+
+        showPopup("Zatwierdzanie", res);
+
+        onRefreshPendingUsers(); // odśwież listę
+    }
+
+    @FXML
+    protected void onLoadAllUsers() {
+
+        String res = send("GET_ALL_USERS " + currentUser);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        if (data.isBlank()) {
+            allUsersListView.getItems().setAll("Brak użytkowników");
+            return;
+        }
+
+        allUsersListView.getItems().setAll(data.split(";;"));
+    }
+
+    @FXML
+    protected void onDeleteUser() {
+
+        String user = deleteUserField.getText();
+
+        if (user.isBlank()) {
+            showPopup("Błąd", "Podaj login");
+            return;
+        }
+
+        String res = send("DELETE_USER " + currentUser + " " + user);
+
+        showPopup("Usuwanie", res);
+
+        onLoadAllUsers(); // refresh
     }
 
     private String send(String cmd) {
@@ -263,7 +409,7 @@ public class Controller {
 
             String response = in.readLine();
 
-            return response != null ? response : "ERROR: brak odpowiedzi";
+            return response != null ? response : "ERROR: Podaj poprawne dane";
 
         } catch (Exception e) {
             return "ERROR: brak połączenia z serwerem";

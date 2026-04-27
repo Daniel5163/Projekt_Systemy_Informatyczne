@@ -1,0 +1,3 @@
+admin,admin,chief
+policja,123,man
+jan,123,citizen
