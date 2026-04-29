@@ -101,6 +101,8 @@ class AuthServer {
                 case "GET_ALL_USERS" -> userManager.getAllUsers(t, out);
                 case "DELETE_USER" -> userManager.deleteUser(t, out);
 
+                case "DELETE_PENDING" -> userManager.deletePending(t, out);
+
                 default -> out.println("ERROR");
 
             }
@@ -188,9 +190,39 @@ class UserManager {
         String password = t[3];
         String roleNew = t[4];
 
-        pendingUsers.add(new String[]{newUser, password, roleNew});
+        String extra = t.length > 5 ? t[5] : null;
 
-        out.println("SUCCESS:Zgłoszenie wysłane do komendanta");
+        if ("citizen".equals(roleNew)) {
+
+            try (Connection conn = DataBase.connect()) {
+
+                PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO users(username, password, role, police_id, pesel) VALUES (?, ?, ?, ?, ?)"
+                );
+
+                ps.setString(1, newUser);
+                ps.setString(2, password);
+                ps.setString(3, roleNew);
+                ps.setString(4, null);
+                ps.setString(5, extra);
+
+                ps.executeUpdate();
+
+                pass.put(newUser, password);
+                role.put(newUser, roleNew);
+                logged.put(newUser, false);
+
+                out.println("SUCCESS:Konto utworzone");
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                out.println("ERROR:Baza");
+            }
+
+        } else {
+            pendingUsers.add(new String[]{newUser, password, roleNew, extra});
+            out.println("SUCCESS:Do zatwierdzenia");
+        }
     }
 
     public void approveUser(String[] t, PrintWriter out) {
@@ -214,15 +246,18 @@ class UserManager {
                 String username = u[0];
                 String password = u[1];
                 String roleNew = u[2];
+                String policeId = u.length > 3 ? u[3] : null;
 
                 try (Connection conn = DataBase.connect()) {
 
-                    String sql = "INSERT INTO users(username, password, role) VALUES (?, ?, ?)";
-                    PreparedStatement ps = conn.prepareStatement(sql);
+                    PreparedStatement ps = conn.prepareStatement(
+                            "INSERT INTO users(username, password, role, police_id) VALUES (?, ?, ?, ?)"
+                    );
 
                     ps.setString(1, username);
                     ps.setString(2, password);
                     ps.setString(3, roleNew);
+                    ps.setString(4, policeId);
 
                     ps.executeUpdate();
 
@@ -232,19 +267,19 @@ class UserManager {
 
                     it.remove();
 
-                    out.println("SUCCESS:Użytkownik dodany do bazy i zatwierdzony");
+                    out.println("SUCCESS:Użytkownik zatwierdzony");
 
                     return;
 
                 } catch (Exception e) {
                     e.printStackTrace();
-                    out.println("ERROR:Błąd bazy danych");
+                    out.println("ERROR:Baza danych");
                     return;
                 }
             }
         }
 
-        out.println("ERROR:Nie znaleziono w oczekujących");
+        out.println("ERROR:Nie znaleziono");
     }
 
     public void removeUser(String[] t, PrintWriter out) {
@@ -316,7 +351,12 @@ class UserManager {
         List<String> list = new ArrayList<>();
 
         for (String[] u : pendingUsers) {
-            list.add(u[0] + " | " + u[2]);
+
+            String username = u[0];
+            String role = u[2];
+            String policeId = u.length > 3 ? u[3] : "-";
+
+            list.add(username + " | " + role + " | ID: " + policeId);
         }
 
         out.println("SUCCESS:" + String.join(";;", list));
@@ -333,7 +373,7 @@ class UserManager {
 
         try (Connection conn = DataBase.connect()) {
 
-            String sql = "SELECT username, role FROM users";
+            String sql = "SELECT username, role, police_id FROM users";
             PreparedStatement ps = conn.prepareStatement(sql);
 
             ResultSet rs = ps.executeQuery();
@@ -341,17 +381,19 @@ class UserManager {
             List<String> users = new ArrayList<>();
 
             while (rs.next()) {
+
                 String u = rs.getString("username");
                 String r = rs.getString("role");
+                String id = rs.getString("police_id");
 
-                users.add(u + " | " + r);
+                users.add(u + " | " + r + " | ID: " + (id != null ? id : "-"));
             }
 
             out.println("SUCCESS:" + String.join(";;", users));
 
         } catch (Exception e) {
             e.printStackTrace();
-            out.println("ERROR:Błąd bazy");
+            out.println("ERROR:Baza danych");
         }
     }
 
@@ -367,29 +409,50 @@ class UserManager {
 
         try (Connection conn = DataBase.connect()) {
 
-            String sql = "DELETE FROM users WHERE username = ?";
-            PreparedStatement ps = conn.prepareStatement(sql);
+            PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM users WHERE username = ?"
+            );
 
             ps.setString(1, userToDelete);
 
             int rows = ps.executeUpdate();
 
             if (rows > 0) {
+
                 pass.remove(userToDelete);
                 role.remove(userToDelete);
                 logged.remove(userToDelete);
 
-                out.println("SUCCESS:Użytkownik usunięty");
+                out.println("SUCCESS:Użytkownik usunięty z bazy");
+
             } else {
                 out.println("ERROR:Nie znaleziono użytkownika");
             }
 
         } catch (Exception e) {
             e.printStackTrace();
-            out.println("ERROR:Błąd bazy");
+            out.println("ERROR:Baza danych");
         }
     }
 
+    public void deletePending(String[] t, PrintWriter out) {
+
+        String chief = t[1];
+        String userToDelete = t[2];
+
+        if (!logged(chief) || !isChief(chief)) {
+            out.println("ERROR:Tylko komendant");
+            return;
+        }
+
+        boolean removed = pendingUsers.removeIf(u -> u[0].equals(userToDelete));
+
+        if (removed) {
+            out.println("SUCCESS:Usunięto z oczekujących");
+        } else {
+            out.println("ERROR:Nie znaleziono");
+        }
+    }
 
 }
 
@@ -402,13 +465,36 @@ class DriverManager {
             return;
         }
 
+        String user = t[1];
+        String peselInput = t[2];
+
         try (Connection conn = DataBase.connect()) {
 
-            PreparedStatement ps = conn.prepareStatement(
-                    "SELECT * FROM drivers WHERE id = ?"
+            PreparedStatement psUser = conn.prepareStatement(
+                    "SELECT pesel FROM users WHERE username = ?"
             );
 
-            ps.setString(1, t[2]);
+            psUser.setString(1, user);
+
+            ResultSet rsUser = psUser.executeQuery();
+
+            if (!rsUser.next()) {
+                out.println("ERROR:Brak użytkownika");
+                return;
+            }
+
+            String peselDb = rsUser.getString("pesel");
+
+            if (peselDb == null || !peselDb.equals(peselInput)) {
+                out.println("ERROR:Niepoprawny PESEL");
+                return;
+            }
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM drivers WHERE pesel = ?"
+            );
+
+            ps.setString(1, peselInput);
 
             ResultSet rs = ps.executeQuery();
 
@@ -429,6 +515,7 @@ class DriverManager {
             ps2.setString(1, driverId);
 
             ResultSet rs2 = ps2.executeQuery();
+
             int points = rs2.next() ? rs2.getInt(1) : 0;
 
             String status = warrant ? "UWAGA: Poszukiwany!" : "OK";
@@ -449,55 +536,90 @@ class DriverManager {
 
         public void issue(String[] t, PrintWriter out, UserManager u) {
 
-        if (t.length < 7) {
-            out.println("ERROR:format");
-            return;
+            try (Connection conn = DataBase.connect()) {
+
+                String user = t[1];
+
+                if (!u.logged(user) || !u.isPolice(user)) {
+                    out.println("ERROR:Brak dostępu");
+                    return;
+                }
+
+                String ticketId = t[2];
+                String pesel = t[3];
+                int points = Integer.parseInt(t[4]);
+                String reason = t[6];
+
+                int driverId = getOrCreateDriver(conn, pesel);
+
+                PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO tickets (id, driver_id, police_user, points, reason, paid) " +
+                                "VALUES (?, ?, ?, ?, ?, false)"
+                );
+
+                ps.setString(1, ticketId);
+
+                if (driverId == -1) {
+                    ps.setNull(2, java.sql.Types.INTEGER);
+                } else {
+                    ps.setInt(2, driverId);
+                }
+
+                ps.setString(3, user);
+                ps.setInt(4, points);
+                ps.setString(5, reason);
+
+                ps.executeUpdate();
+
+                out.println("SUCCESS:OK");
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                out.println("ERROR:" + e.getMessage());
+            }
         }
 
-        String user = t[1];
+        private int getOrCreateDriver(Connection conn, String pesel) throws Exception {
 
-        if (!u.logged(user) || !u.isPolice(user)) {
-            out.println("ERROR:Brak dostępu");
-            return;
-        }
-
-        String id = t[2];
-        String driverId = t[3];
-        int points = Integer.parseInt(t[4]);
-        String fine = t[5];
-        String reason = t[6];
-
-        try (Connection conn = DataBase.connect()) {
-
-            PreparedStatement check = conn.prepareStatement(
-                    "SELECT id FROM tickets WHERE id = ?"
+            PreparedStatement psUser = conn.prepareStatement(
+                    "SELECT id FROM users WHERE pesel = ?"
             );
-            check.setString(1, id);
 
-            if (check.executeQuery().next()) {
-                out.println("ERROR:ID istnieje");
-                return;
+            psUser.setString(1, pesel);
+            ResultSet rsUser = psUser.executeQuery();
+
+            if (!rsUser.next()) {
+                return -1;
             }
 
-            PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO tickets VALUES (?, ?, ?, ?, ?, false)"
+            int userId = rsUser.getInt(1);
+
+            PreparedStatement psDriver = conn.prepareStatement(
+                    "SELECT id FROM drivers WHERE user_id = ?"
             );
 
-            ps.setString(1, id);
-            ps.setString(2, driverId);
-            ps.setString(3, user);
-            ps.setInt(4, points);
-            ps.setString(5, reason);
+            psDriver.setInt(1, userId);
+            ResultSet rsDriver = psDriver.executeQuery();
 
-            ps.executeUpdate();
+            if (rsDriver.next()) {
+                return rsDriver.getInt(1);
+            }
 
-            out.println("SUCCESS:Mandat wystawiony");
+            PreparedStatement ins = conn.prepareStatement(
+                    "INSERT INTO drivers(user_id) VALUES (?)",
+                    Statement.RETURN_GENERATED_KEYS
+            );
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            out.println("ERROR:Baza");
+            ins.setInt(1, userId);
+            ins.executeUpdate();
+
+            ResultSet keys = ins.getGeneratedKeys();
+            if (keys.next()) {
+                return keys.getInt(1);
+            }
+
+            return -1;
         }
-    }
 
     public void pay(String[] t, PrintWriter out) {
 
@@ -808,19 +930,29 @@ class CitizenManager {
 
     public void getPoints(String[] t, PrintWriter out, DriverManager driverManager) {
 
+        String pesel = t[1];
+
         try (Connection conn = DataBase.connect()) {
 
             PreparedStatement ps = conn.prepareStatement(
-                    "SELECT COALESCE(SUM(points),0) FROM tickets WHERE driver_id = ?"
+                    "SELECT COALESCE(SUM(t.points), 0) " +
+                            "FROM tickets t " +
+                            "JOIN drivers d ON t.driver_id = d.id " +
+                            "JOIN users u ON d.user_id = u.id " +
+                            "WHERE u.pesel = ?"
             );
 
-            ps.setString(1, t[1]);
+            ps.setString(1, pesel);
 
             ResultSet rs = ps.executeQuery();
 
+            int points = 0;
+
             if (rs.next()) {
-                out.println("SUCCESS:Punkty=" + rs.getInt(1));
+                points = rs.getInt(1);
             }
+
+            out.println("SUCCESS:Punkty=" + points);
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -830,30 +962,42 @@ class CitizenManager {
 
     public void getTickets(String[] t, PrintWriter out) {
 
+        String pesel = t[1];
+
         try (Connection conn = DataBase.connect()) {
 
             PreparedStatement ps = conn.prepareStatement(
-                    "SELECT * FROM tickets WHERE driver_id = ?"
+                    "SELECT t.* " +
+                            "FROM tickets t " +
+                            "LEFT JOIN drivers d ON t.driver_id = d.id " +
+                            "LEFT JOIN users u ON d.user_id = u.id " +
+                            "WHERE u.pesel = ?"
             );
 
-            ps.setString(1, t[1]);
+            ps.setString(1, pesel);
 
             ResultSet rs = ps.executeQuery();
 
             List<String> list = new ArrayList<>();
 
             while (rs.next()) {
+
+                String driverId = rs.getString("driver_id");
+                String points = String.valueOf(rs.getInt("points"));
+                String reason = rs.getString("reason");
+                boolean paid = rs.getBoolean("paid");
+
                 list.add(
                         rs.getString("id") + "," +
-                                rs.getString("driver_id") + "," +
-                                rs.getInt("points") + "," +
-                                rs.getString("reason") + "," +
-                                rs.getBoolean("paid")
+                                (driverId != null ? driverId : "BRAK") + "," +
+                                points + "," +
+                                reason + "," +
+                                paid
                 );
             }
 
             if (list.isEmpty()) {
-                out.println("EMPTY:Brak mandatów");
+                out.println("SUCCESS:EMPTY");
             } else {
                 out.println("SUCCESS:" + String.join(";;", list));
             }

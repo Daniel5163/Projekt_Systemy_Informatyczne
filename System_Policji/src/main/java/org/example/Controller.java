@@ -56,6 +56,8 @@ public class Controller {
     @FXML private ListView<String> allUsersListView;
     @FXML private TextField deleteUserField;
 
+    @FXML private ListView<String> ticketsListView;
+
     private String currentUser;
     private String currentRole;
 
@@ -142,7 +144,7 @@ public class Controller {
             reportBox.setVisible(true);
             onRefreshPendingUsers();
 
-            pendingUsersBox.setVisible(true); // 🔥 NOWE
+            pendingUsersBox.setVisible(true);
         }
     }
 
@@ -240,7 +242,15 @@ public class Controller {
 
     @FXML
     protected void onGetTicketsClicked() {
-        String res = send("GET_TICKETS " + citizenIdField.getText());
+
+        String pesel = citizenIdField.getText();
+
+        if (pesel.isBlank()) {
+            showPopup("Błąd", "Podaj PESEL");
+            return;
+        }
+
+        String res = send("GET_TICKETS " + pesel);
 
         if (!res.startsWith("SUCCESS:")) {
             showPopup("Błąd", res);
@@ -249,23 +259,24 @@ public class Controller {
 
         String data = res.substring(8);
 
+        ticketsListView.getItems().clear();
+
         if (data.equals("EMPTY") || data.isBlank()) {
-            showPopup("Mandaty", "Brak mandatów 🎉");
+            ticketsListView.getItems().add("Brak mandatów 🎉");
             return;
         }
 
-        StringBuilder sb = new StringBuilder();
-
         for (String t : data.split(";;")) {
+
             String[] p = t.split(",");
 
-            sb.append("ID: ").append(p[0]).append("\n")
-                    .append("Punkty: ").append(p[3]).append("\n")
-                    .append("Powód: ").append(p[4]).append("\n")
-                    .append("Opłacony: ").append(p[5]).append("\n\n");
-        }
+            String display =
+                    "ID: " + p[0] +
+                            " | Punkty: " + p[2] +
+                            " | " + (p[4].equals("true") ? "Opłacony" : "NIEOPŁACONY");
 
-        showPopup("Twoje mandaty", sb.toString());
+            ticketsListView.getItems().add(display);
+        }
     }
     @FXML
     protected void onCreateAccountClicked() {
@@ -284,17 +295,88 @@ public class Controller {
 
         ComboBox<String> roleBox = new ComboBox<>();
         roleBox.getItems().addAll("policjant", "komendant", "obywatel");
-        roleBox.setValue("obywatel");
+        roleBox.getSelectionModel().select("obywatel");
+
+        TextField policeIdField = new TextField();
+        policeIdField.setPromptText("Identyfikator policjanta");
+
+        TextField peselField = new TextField();
+        peselField.setPromptText("PESEL");
+
+        Label errorLabel = new Label();
+        errorLabel.setStyle("-fx-text-fill: red;");
+        errorLabel.setVisible(false);
 
         VBox vbox = new VBox(10,
                 new Label("Login:"), loginField,
                 new Label("Hasło:"), passwordField,
-                new Label("Rola:"), roleBox
+                new Label("Rola:"), roleBox,
+                policeIdField,
+                peselField,
+                errorLabel
         );
 
         dialog.getDialogPane().setContent(vbox);
 
+        Runnable updateUI = () -> {
+
+            policeIdField.setVisible(false);
+            peselField.setVisible(false);
+            errorLabel.setVisible(false);
+
+            String role = roleBox.getValue();
+
+            if ("policjant".equals(role)) {
+                policeIdField.setVisible(true);
+            }
+
+            if ("obywatel".equals(role)) {
+                peselField.setVisible(true);
+            }
+        };
+
+        roleBox.setOnAction(e -> updateUI.run());
+        updateUI.run();
+
+        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
+
+        okButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+
+            errorLabel.setVisible(false);
+
+            if (loginField.getText().isBlank() || passwordField.getText().isBlank()) {
+                errorLabel.setText("Uzupełnij login i hasło");
+                errorLabel.setVisible(true);
+                event.consume();
+                return;
+            }
+
+            if ("policjant".equals(roleBox.getValue()) && policeIdField.getText().isBlank()) {
+                errorLabel.setText("Podaj identyfikator policjanta");
+                errorLabel.setVisible(true);
+                event.consume();
+                return;
+            }
+
+            if ("obywatel".equals(roleBox.getValue())) {
+
+                if (peselField.getText().isBlank()) {
+                    errorLabel.setText("Podaj PESEL");
+                    errorLabel.setVisible(true);
+                    event.consume();
+                    return;
+                }
+
+                if (peselField.getText().length() != 11) {
+                    errorLabel.setText("PESEL musi mieć 11 cyfr");
+                    errorLabel.setVisible(true);
+                    event.consume();
+                }
+            }
+        });
+
         dialog.showAndWait().ifPresent(result -> {
+
             if (result == ButtonType.OK) {
 
                 String role = switch (roleBox.getValue()) {
@@ -303,12 +385,20 @@ public class Controller {
                     default -> "citizen";
                 };
 
-                String res = send("ADD_USER " + currentUser + " "
+                String cmd = "ADD_USER " + currentUser + " "
                         + loginField.getText() + " "
                         + passwordField.getText() + " "
-                        + role);
+                        + role;
 
-                showPopup("Tworzenie konta", res);
+                if ("man".equals(role)) {
+                    cmd += " " + policeIdField.getText();
+                }
+
+                if ("citizen".equals(role)) {
+                    cmd += " " + peselField.getText();
+                }
+
+                showPopup("Tworzenie konta", send(cmd));
             }
         });
     }
@@ -400,6 +490,184 @@ public class Controller {
         onLoadAllUsers(); // refresh
     }
 
+    @FXML
+    protected void initialize() {
+
+        pendingUsersListView.setOnMouseClicked(event -> {
+
+            if (event.getClickCount() == 2) {
+
+                String selected = pendingUsersListView
+                        .getSelectionModel()
+                        .getSelectedItem();
+
+                if (selected != null && !selected.equals("Brak oczekujących kont")) {
+                    showPendingUserDialog(selected);
+                }
+            }
+        });
+
+        allUsersListView.setOnMouseClicked(event -> {
+
+            if (event.getClickCount() == 2) {
+
+                String selected = allUsersListView
+                        .getSelectionModel()
+                        .getSelectedItem();
+
+                if (selected != null && !selected.equals("Brak użytkowników")) {
+                    showDeleteUserDialog(selected);
+                }
+            }
+        });
+
+        ticketsListView.setOnMouseClicked(event -> {
+
+            if (event.getClickCount() == 2) {
+
+                String selected = ticketsListView
+                        .getSelectionModel()
+                        .getSelectedItem();
+
+                if (selected != null && !selected.contains("Brak mandatów")) {
+                    showTicketDialog(selected);
+                }
+            }
+        });
+    }
+    private void showTicketDialog(String ticketData) {
+
+        String id = ticketData.split(" \\| ")[0]
+                .replace("ID: ", "")
+                .trim();
+
+        String res = send("GET_TICKETS " + citizenIdField.getText());
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        for (String t : data.split(";;")) {
+
+            String[] p = t.split(",");
+
+            if (p[0].equals(id)) {
+
+                String details =
+                        "ID: " + p[0] + "\n" +
+                                "Punkty: " + p[2] + "\n" +
+                                "Powód: " + p[3] + "\n" +
+                                "Status: " + (p[4].equals("true") ? "Opłacony" : "Nieopłacony");
+
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+                alert.setTitle("Mandat");
+                alert.setHeaderText("Szczegóły mandatu");
+                alert.setContentText(details);
+
+                ButtonType payBtn = new ButtonType("Opłać");
+                ButtonType closeBtn = new ButtonType("Zamknij", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+                if (p[4].equals("false")) {
+                    alert.getButtonTypes().setAll(payBtn, closeBtn);
+                } else {
+                    alert.getButtonTypes().setAll(closeBtn);
+                }
+
+                alert.showAndWait().ifPresent(result -> {
+
+                    if (result == payBtn) {
+
+                        String payRes = send("PAY_TICKET " + p[0]);
+                        showPopup("Płatność", payRes);
+
+                        onGetTicketsClicked();
+                    }
+                });
+
+                return;
+            }
+        }
+    }
+    private void showPendingUserDialog(String userData) {
+
+        String[] parts = userData.split(" \\| ");
+
+        String username = parts[0].trim();
+        String role = parts.length > 1 ? parts[1].trim() : "-";
+        String policeId = parts.length > 2 ? parts[2].replace("ID:", "").trim() : "-";
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Zarządzanie użytkownikiem");
+        alert.setHeaderText("Dane użytkownika");
+
+        alert.setContentText(
+                "Login: " + username + "\n" +
+                        "Rola: " + role + "\n" +
+                        "ID: " + policeId
+        );
+
+        ButtonType approveBtn = new ButtonType("Zatwierdź");
+        ButtonType deleteBtn = new ButtonType("Usuń");
+        ButtonType cancelBtn = new ButtonType("Anuluj", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(approveBtn, deleteBtn, cancelBtn);
+
+        alert.showAndWait().ifPresent(result -> {
+
+            if (result == approveBtn) {
+
+                String res = send("APPROVE_USER " + currentUser + " " + username);
+                showPopup("Zatwierdzanie", res);
+
+            } else if (result == deleteBtn) {
+
+                String res = send("DELETE_PENDING " + currentUser + " " + username);
+                showPopup("Usuwanie", res);
+            }
+
+            onRefreshPendingUsers();
+        });
+    }
+
+
+    private void showDeleteUserDialog(String userData) {
+
+        String[] parts = userData.split(" \\| ");
+
+        String username = parts[0].trim();
+        String role = parts.length > 1 ? parts[1].trim() : "-";
+        String policeId = parts.length > 2 ? parts[2].replace("ID:", "").trim() : "-";
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Usuwanie użytkownika");
+        alert.setHeaderText("Dane użytkownika");
+
+        alert.setContentText(
+                "Login: " + username + "\n" +
+                        "Rola: " + role + "\n" +
+                        "ID: " + policeId + "\n\n" +
+                        "Czy na pewno chcesz usunąć użytkownika?"
+        );
+
+        ButtonType deleteBtn = new ButtonType("Usuń");
+        ButtonType cancelBtn = new ButtonType("Anuluj", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(deleteBtn, cancelBtn);
+
+        alert.showAndWait().ifPresent(result -> {
+
+            if (result == deleteBtn) {
+
+                String res = send("DELETE_USER " + currentUser + " " + username);
+                showPopup("Usuwanie użytkownika", res);
+
+                onLoadAllUsers(); // refresh listy
+            }
+        });
+    }
     private String send(String cmd) {
         try (Socket socket = new Socket("localhost", 5556);
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true);

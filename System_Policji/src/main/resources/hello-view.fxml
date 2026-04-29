@@ -109,6 +109,10 @@
                         onAction="#onGetTicketsClicked"
                         style="-fx-base: #3F51B5; -fx-max-width: 200;"/>
 
+                <ScrollPane style="-fx-max-height: 150; -fx-max-width: 300;">
+                    <ListView fx:id="ticketsListView"/>
+                </ScrollPane>
+
                 <HBox spacing="8" alignment="CENTER">
 
                     <TextField fx:id="ticketIdField" promptText="ID mandatu" style="-fx-max-width: 150;"/>
@@ -149,17 +153,7 @@
                               prefHeight="150"
                               prefWidth="300"/>
 
-                    <HBox spacing="8" alignment="CENTER">
 
-                        <TextField fx:id="approveUserField"
-                                   promptText="Login do zatwierdzenia"
-                                   style="-fx-max-width: 150;"/>
-
-                        <Button text="✔ Zatwierdź"
-                                onAction="#onApproveUserClicked"
-                                style="-fx-base: #4CAF50;"/>
-
-                    </HBox>
 
                     <VBox spacing="8" alignment="CENTER"
                           style="-fx-background-color: #eeeeee; -fx-padding: 10;">
@@ -174,13 +168,6 @@
 
                             <Button text="🔄 Odśwież"
                                     onAction="#onLoadAllUsers"/>
-
-                            <TextField fx:id="deleteUserField"
-                                       promptText="login do usunięcia"
-                                       style="-fx-max-width: 150;"/>
-
-                            <Button text="🗑 Usuń"
-                                    onAction="#onDeleteUser"/>
 
                         </HBox>
 
