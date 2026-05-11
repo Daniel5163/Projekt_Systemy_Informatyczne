@@ -7,6 +7,20 @@ import javafx.scene.layout.VBox;
 import java.io.*;
 import java.net.Socket;
 
+import javafx.stage.Stage;
+import javafx.scene.Scene;
+import javafx.scene.layout.VBox;
+import javafx.geometry.Insets;
+import javafx.scene.control.*;
+
+import java.util.List;
+import java.util.ArrayList;
+
+import java.net.Socket;
+import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class Controller {
 
     @FXML private VBox loginPane;
@@ -57,6 +71,15 @@ public class Controller {
     @FXML private TextField deleteUserField;
 
     @FXML private ListView<String> ticketsListView;
+
+    @FXML private TextField peselFieldPolice;
+    @FXML private TextField nameFieldPolice;
+    @FXML private TextField surnameFieldPolice;
+
+
+
+
+
 
     private String currentUser;
     private String currentRole;
@@ -185,21 +208,30 @@ public class Controller {
     @FXML
     protected void issuePenaltyTicket() {
 
-        String ticketId = ticketIdFieldPolice.getText();
-        String driverId = driverIdField.getText();
+        String pesel = peselFieldPolice.getText();
+        String name = nameFieldPolice.getText();
+        String surname = surnameFieldPolice.getText();
         String points = penaltyPointsField.getText();
         String fine = fineAmountField.getText();
         String reason = reasonField.getText();
 
-        if (ticketId.isBlank() || driverId.isBlank() || points.isBlank() || fine.isBlank() || reason.isBlank()) {
+        if (pesel.isBlank() || name.isBlank() || surname.isBlank()
+                || points.isBlank() || fine.isBlank() || reason.isBlank()) {
+
             showPopup("Błąd", "Uzupełnij wszystkie pola");
+            return;
+        }
+
+        if (pesel.length() != 11) {
+            showPopup("Błąd", "PESEL musi mieć 11 cyfr");
             return;
         }
 
         String cmd = "ISSUE_TICKET "
                 + currentUser + " "
-                + ticketId + " "
-                + driverId + " "
+                + pesel + " "
+                + name + " "
+                + surname + " "
                 + points + " "
                 + fine + " "
                 + reason.replace(" ", "_");
@@ -270,10 +302,12 @@ public class Controller {
 
             String[] p = t.split(",");
 
+            if (p.length < 4) continue; // zabezpieczenie
+
             String display =
                     "ID: " + p[0] +
-                            " | Punkty: " + p[2] +
-                            " | " + (p[4].equals("true") ? "Opłacony" : "NIEOPŁACONY");
+                            " | Punkty: " + p[1] +
+                            " | " + (p[3].equals("true") ? "Opłacony" : "NIEOPŁACONY");
 
             ticketsListView.getItems().add(display);
         }
@@ -450,7 +484,7 @@ public class Controller {
 
         showPopup("Zatwierdzanie", res);
 
-        onRefreshPendingUsers(); // odśwież listę
+        onRefreshPendingUsers();
     }
 
     @FXML
@@ -535,6 +569,324 @@ public class Controller {
             }
         });
     }
+
+    @FXML
+    protected void onChangePasswordClicked() {
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Zmiana hasła");
+        dialog.setHeaderText("Podaj stare i nowe hasło");
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        PasswordField oldPassField = new PasswordField();
+        oldPassField.setPromptText("Stare hasło");
+
+        PasswordField newPassField = new PasswordField();
+        newPassField.setPromptText("Nowe hasło");
+
+        PasswordField confirmPassField = new PasswordField();
+        confirmPassField.setPromptText("Powtórz nowe hasło");
+
+        Label errorLabel = new Label();
+        errorLabel.setStyle("-fx-text-fill: red;");
+        errorLabel.setVisible(false);
+
+        VBox vbox = new VBox(10,
+                new Label("Stare hasło:"), oldPassField,
+                new Label("Nowe hasło:"), newPassField,
+                new Label("Powtórz hasło:"), confirmPassField,
+                errorLabel
+        );
+
+        dialog.getDialogPane().setContent(vbox);
+
+        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
+
+        okButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+
+            errorLabel.setVisible(false);
+
+            if (oldPassField.getText().isBlank()
+                    || newPassField.getText().isBlank()
+                    || confirmPassField.getText().isBlank()) {
+
+                errorLabel.setText("Uzupełnij wszystkie pola");
+                errorLabel.setVisible(true);
+                event.consume();
+                return;
+            }
+
+            if (!newPassField.getText().equals(confirmPassField.getText())) {
+                errorLabel.setText("Hasła się nie zgadzają");
+                errorLabel.setVisible(true);
+                event.consume();
+            }
+        });
+
+        dialog.showAndWait().ifPresent(result -> {
+
+            if (result == ButtonType.OK) {
+
+                String cmd = "CHANGE_PASSWORD "
+                        + currentUser + " "
+                        + oldPassField.getText() + " "
+                        + newPassField.getText();
+
+                String res = send(cmd);
+
+                showPopup("Zmiana hasła", res);
+            }
+        });
+    }
+
+    @FXML
+    public void onCreatePatrolClicked() {
+
+        try {
+            Socket s = new Socket("localhost", 5556);
+            PrintWriter out = new PrintWriter(s.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
+
+            out.println("GET_POLICEMEN");
+
+            String response = in.readLine();
+
+            if (response == null || !response.startsWith("SUCCESS:")) {
+                showPopup("Błąd", "Nie udało się pobrać policjantów");
+                return;
+            }
+
+            String data = response.substring(8);
+
+            if (data.isBlank()) {
+                showPopup("Info", "Brak policjantów w bazie");
+                return;
+            }
+
+            ListView<CheckBox> listView = new ListView<>();
+
+            for (String p : data.split(";;")) {
+
+                String[] parts = p.split("\\|");
+
+                String username = parts[0];
+                String id = parts.length > 1 ? parts[1] : "-";
+
+                CheckBox cb = new CheckBox(username + " (ID: " + id + ")");
+
+                cb.setUserData(p);
+
+                listView.getItems().add(cb);
+            }
+
+            Button createBtn = new Button("Stwórz patrol");
+
+            VBox layout = new VBox(10, listView, createBtn);
+            layout.setPadding(new Insets(10));
+
+            Stage stage = new Stage();
+            stage.setScene(new Scene(layout, 320, 450));
+            stage.setTitle("Tworzenie patrolu");
+            stage.show();
+
+            createBtn.setOnAction(e -> {
+
+                List<String> selected = new ArrayList<>();
+
+                for (CheckBox cb : listView.getItems()) {
+                    if (cb.isSelected()) {
+                        selected.add((String) cb.getUserData());
+                    }
+                }
+
+                if (selected.isEmpty()) {
+                    showPopup("Błąd", "Wybierz co najmniej jednego policjanta");
+                    return;
+                }
+
+                String members = String.join(",", selected);
+
+                try {
+                    Socket s2 = new Socket("localhost", 5556);
+                    PrintWriter out2 = new PrintWriter(s2.getOutputStream(), true);
+                    BufferedReader in2 = new BufferedReader(new InputStreamReader(s2.getInputStream()));
+
+                    out2.println("CREATE_PATROL " + currentUser + " " + members);
+
+                    String res = in2.readLine();
+
+                    showPopup("Patrol", res);
+
+                    stage.close();
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    showPopup("Błąd", "Nie udało się utworzyć patrolu");
+                }
+
+            });
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showPopup("Błąd", "Brak połączenia z serwerem");
+        }
+    }
+
+    @FXML
+    protected void onLoadPatrolsClicked() {
+
+        String response = send("GET_PATROLS " + currentUser);
+
+        if (!response.startsWith("SUCCESS:")) {
+            showPopup("Błąd", response);
+            return;
+        }
+
+        String data = response.substring(8);
+
+        Stage stage = new Stage();
+        stage.setTitle("Patrole");
+
+        VBox root = new VBox(10);
+        root.setPadding(new Insets(10));
+
+        if (data.isBlank() || data.equals("Brak patroli")) {
+
+            root.getChildren().add(new Label("Brak patroli 🚓"));
+
+        } else {
+
+            for (String patrol : data.split(";;")) {
+
+                VBox patrolBox = new VBox(10);
+
+                patrolBox.setStyle("""
+                -fx-background-color: white;
+                -fx-border-color: #cccccc;
+                -fx-padding: 10;
+                -fx-border-radius: 5;
+                -fx-background-radius: 5;
+            """);
+
+                String[] split = patrol.split("->");
+
+                String info = split[0].trim();
+                String members = split.length > 1 ? split[1].trim() : "";
+
+                final String patrolId = info
+                        .split("\\|")[0]
+                        .replace("Patrol #", "")
+                        .trim();
+
+                Label infoLabel = new Label("🚓 " + info);
+
+                TextArea membersArea = new TextArea(members);
+                membersArea.setEditable(false);
+                membersArea.setWrapText(true);
+                membersArea.setPrefHeight(80);
+
+                TextField locationField = new TextField();
+                locationField.setPromptText("Wpisz adres patrolu");
+
+                Label statusLabel = new Label();
+
+                Button sendBtn = new Button("📍 Wyślij patrol");
+                Button checkBtn = new Button("📏 Sprawdź lokalizację");
+                Button deleteBtn = new Button("🗑 Usuń patrol");
+
+                sendBtn.setStyle("-fx-base: #2196F3;");
+                checkBtn.setStyle("-fx-base: #FFC107;");
+                deleteBtn.setStyle("-fx-base: #e53935;");
+
+                sendBtn.setOnAction(e -> {
+
+                    String address = locationField.getText();
+
+                    if (address.isBlank()) {
+                        showPopup("Błąd", "Podaj adres");
+                        return;
+                    }
+
+                    String cmd = "SEND_PATROL " + currentUser + " " + patrolId + " " + address;
+
+                    String res = send(cmd);
+
+                    showPopup("Patrol", res);
+                });
+
+                checkBtn.setOnAction(e -> {
+
+                    String address = locationField.getText();
+
+                    if (address.isBlank()) {
+                        showPopup("Błąd", "Podaj adres");
+                        return;
+                    }
+
+                    double distance = Math.random() * 20;
+
+                    String status;
+
+                    if (distance < 3) {
+                        status = "🟢 bardzo blisko";
+                    } else if (distance < 10) {
+                        status = "🟡 średnio daleko";
+                    } else {
+                        status = "🔴 daleko";
+                    }
+
+                    statusLabel.setText(
+                            "Odległość: " + String.format("%.1f km", distance)
+                                    + " | " + status
+                    );
+                });
+
+                deleteBtn.setOnAction(e -> {
+
+                    Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+                    confirm.setTitle("Usuwanie patrolu");
+                    confirm.setHeaderText("Czy usunąć patrol #" + patrolId + "?");
+
+                    confirm.showAndWait().ifPresent(result -> {
+
+                        if (result == ButtonType.OK) {
+
+                            String res = send(
+                                    "DELETE_PATROL "
+                                            + currentUser + " "
+                                            + patrolId
+                            );
+
+                            showPopup("Patrol", res);
+
+                            stage.close();
+                            onLoadPatrolsClicked(); // refresh
+                        }
+                    });
+                });
+
+                patrolBox.getChildren().addAll(
+                        infoLabel,
+                        membersArea,
+                        locationField,
+                        statusLabel,
+                        sendBtn,
+                        checkBtn,
+                        deleteBtn
+                );
+
+                root.getChildren().add(patrolBox);
+            }
+        }
+
+        ScrollPane scroll = new ScrollPane(root);
+        scroll.setFitToWidth(true);
+
+        stage.setScene(new Scene(scroll, 500, 450));
+        stage.show();
+    }
+
     private void showTicketDialog(String ticketData) {
 
         String id = ticketData.split(" \\| ")[0]
@@ -554,13 +906,15 @@ public class Controller {
 
             String[] p = t.split(",");
 
+            if (p.length < 4) continue;
+
             if (p[0].equals(id)) {
 
                 String details =
                         "ID: " + p[0] + "\n" +
-                                "Punkty: " + p[2] + "\n" +
-                                "Powód: " + p[3] + "\n" +
-                                "Status: " + (p[4].equals("true") ? "Opłacony" : "Nieopłacony");
+                                "Punkty: " + p[1] + "\n" +
+                                "Powód: " + p[2] + "\n" +
+                                "Status: " + (p[3].equals("true") ? "Opłacony" : "Nieopłacony");
 
                 Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
                 alert.setTitle("Mandat");
@@ -570,7 +924,7 @@ public class Controller {
                 ButtonType payBtn = new ButtonType("Opłać");
                 ButtonType closeBtn = new ButtonType("Zamknij", ButtonBar.ButtonData.CANCEL_CLOSE);
 
-                if (p[4].equals("false")) {
+                if (p[3].equals("false")) {
                     alert.getButtonTypes().setAll(payBtn, closeBtn);
                 } else {
                     alert.getButtonTypes().setAll(closeBtn);
@@ -632,7 +986,6 @@ public class Controller {
         });
     }
 
-
     private void showDeleteUserDialog(String userData) {
 
         String[] parts = userData.split(" \\| ");
@@ -683,4 +1036,148 @@ public class Controller {
             return "ERROR: brak połączenia z serwerem";
         }
     }
+
+    private void showPatrolDialog(String patrolData) {
+
+        Alert alert = new Alert(Alert.AlertType.NONE);
+        alert.setTitle("Szczegóły patrolu");
+        alert.setHeaderText("Informacje o patrolu");
+
+        TextArea patrolInfo = new TextArea();
+        patrolInfo.setEditable(false);
+        patrolInfo.setWrapText(true);
+        patrolInfo.setPrefHeight(220);
+
+        patrolInfo.setText(
+                patrolData.replace(";;", "\n")
+        );
+
+        TextField locationField = new TextField();
+        locationField.setPromptText("Podaj adres zgłoszenia");
+
+        Label locationStatus = new Label();
+
+        VBox layout = new VBox(10,
+                new Label("Patrol:"),
+                patrolInfo,
+
+                new Separator(),
+
+                new Label("Lokalizacja zgłoszenia:"),
+                locationField,
+                locationStatus
+        );
+
+        layout.setPadding(new Insets(10));
+
+        alert.getDialogPane().setContent(layout);
+
+        ButtonType sendBtn =
+                new ButtonType("📍 Wyślij patrol");
+
+        ButtonType checkBtn =
+                new ButtonType("📏 Sprawdź lokalizację");
+
+        ButtonType deleteBtn =
+                new ButtonType("🗑 Usuń patrol");
+
+        ButtonType closeBtn =
+                new ButtonType("Zamknij",
+                        ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(
+                sendBtn,
+                checkBtn,
+                deleteBtn,
+                closeBtn
+        );
+
+        while (true) {
+
+            var result = alert.showAndWait();
+
+            if (result.isEmpty()) {
+                break;
+            }
+
+            if (result.get() == sendBtn) {
+
+                String address = locationField.getText();
+
+                if (address.isBlank()) {
+                    showPopup("Błąd", "Podaj adres");
+                    continue;
+                }
+
+                String res = send(
+                        "SEND_PATROL "
+                                + currentUser + " "
+                                + patrolData.replace(" ", "_") + " "
+                                + address.replace(" ", "_")
+                );
+
+                showPopup("Patrol", res);
+            }
+
+            else if (result.get() == checkBtn) {
+
+                String address = locationField.getText();
+
+                if (address.isBlank()) {
+                    showPopup("Błąd", "Podaj adres");
+                    continue;
+                }
+
+                /*
+                 * - Google Maps API
+                 * - OpenStreetMap
+                 * - GPS patroli
+                 */
+
+                double distance = Math.random() * 20;
+
+                String status;
+
+                if (distance < 3) {
+                    status = " Patrol bardzo blisko";
+                }
+                else if (distance < 10) {
+                    status = " Patrol średnio daleko";
+                }
+                else {
+                    status = " Patrol daleko";
+                }
+
+                locationStatus.setText(
+                        "Odległość: "
+                                + String.format("%.1f", distance)
+                                + " km\n"
+                                + status
+                );
+            }
+
+            else if (result.get() == deleteBtn) {
+
+                String patrolId =
+                        patrolData.split(" ")[0];
+
+                String res = send(
+                        "DELETE_PATROL "
+                                + currentUser + " "
+                                + patrolId
+                );
+
+                showPopup("Usuwanie patrolu", res);
+
+                onLoadPatrolsClicked();
+
+                break;
+            }
+
+            else {
+                break;
+            }
+        }
+    }
+
 }

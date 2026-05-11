@@ -47,8 +47,11 @@
                     <Button text="🚗 Sprawdź pojazd" onAction="#onCheckLicensePlateClicked" style="-fx-base: #2196F3;"/>
                 </HBox>
                 <HBox spacing="8" alignment="CENTER">
-                    <TextField fx:id="driverIdField" promptText="ID kierowcy" style="-fx-max-width: 150;"/>
-                    <TextField fx:id="ticketIdFieldPolice" promptText="ID mandatu (9 cyfr)"/>
+                    <HBox spacing="8" alignment="CENTER">
+                        <TextField fx:id="peselFieldPolice" promptText="PESEL" style="-fx-max-width: 150;"/>
+                        <TextField fx:id="nameFieldPolice" promptText="Imię" style="-fx-max-width: 120;"/>
+                        <TextField fx:id="surnameFieldPolice" promptText="Nazwisko" style="-fx-max-width: 150;"/>
+                    </HBox>
 
                 </HBox>
                 <HBox spacing="8" alignment="CENTER">
@@ -168,6 +171,9 @@
 
                             <Button text="🔄 Odśwież"
                                     onAction="#onLoadAllUsers"/>
+                            <Button text="🚓 Stwórz patrol" onAction="#onCreatePatrolClicked"/>
+                            <Button text="🚓 Patrole" onAction="#onLoadPatrolsClicked"/>
+
 
                         </HBox>
 
@@ -177,5 +183,6 @@
             </VBox>
         </VBox>
         <Button fx:id="logoutButton" text="Wyloguj się" onAction="#onLogoutClicked" style="-fx-base: #9E9E9E; -fx-max-width: 200;"/>
+        <Button fx:id="changepasswordButton" text="Zmień hasło" onAction="#onChangePasswordClicked" style="-fx-base: #9E9E9E; -fx-max-width: 200;"/>
     </VBox>
 </ScrollPane>
