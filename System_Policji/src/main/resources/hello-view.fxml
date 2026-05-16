@@ -3,186 +3,313 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.geometry.Insets?>
-<?import javafx.collections.FXCollections?>
 
-<?import java.lang.String?>
-<ScrollPane xmlns="http://javafx.com/javafx"
+<BorderPane xmlns="http://javafx.com/javafx"
             xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.Controller"
-            fitToWidth="true"
-            style="-fx-background: #f0f0f0;">
+            prefWidth="1400"
+            prefHeight="900">
 
-    <VBox spacing="10" alignment="TOP_CENTER" style="-fx-background-color: #f0f0f0; -fx-padding: 15;">
+    <left>
 
-        <VBox fx:id="loginPane" spacing="8" alignment="CENTER"
-              style="-fx-padding: 10; -fx-background-color: white; -fx-border-color: #ccc; -fx-border-radius: 5; -fx-background-radius: 5;">
-            <Label text="Logowanie" style="-fx-font-weight: bold; -fx-font-size: 14;"/>
-            <VBox spacing="5" alignment="CENTER">
-                <TextField fx:id="usernameField" promptText="Nazwa użytkownika" style="-fx-max-width: 200;"/>
-                <PasswordField fx:id="passwordField" promptText="Hasło" style="-fx-max-width: 200;"/>
-                <Button text="Zaloguj się" onAction="#onLoginClicked" style="-fx-max-width: 200;"/>
-                <Button text="Utwórz konto" onAction="#onCreateAccountClicked" style="-fx-max-width: 200;"/>
-            </VBox>
-        </VBox>
+        <ScrollPane fitToWidth="true"
+                    prefWidth="420"
+                    style="-fx-background: #f0f0f0;">
 
-        <Label fx:id="statusLabel" text="Brak akcji." style="-fx-font-weight: bold; -fx-text-fill: #333;"/>
+            <content>
 
-        <VBox fx:id="contentBox" spacing="15" alignment="TOP_CENTER" visible="false">
+                <VBox spacing="10"
+                      alignment="TOP_CENTER"
+                      style="-fx-background-color: #f0f0f0; -fx-padding: 15;">
 
-            <VBox fx:id="buttonsBox" spacing="8" alignment="CENTER" style="-fx-padding: 5;"/>
+                    <VBox fx:id="loginPane"
+                          spacing="8"
+                          alignment="CENTER"
+                          style="-fx-padding: 10;
+                                 -fx-background-color: white;
+                                 -fx-border-color: #ccc;
+                                 -fx-border-radius: 5;
+                                 -fx-background-radius: 5;">
 
-            <VBox fx:id="managementBox" spacing="8" alignment="CENTER"
+                        <Label text="Logowanie"
+                               style="-fx-font-weight: bold; -fx-font-size: 14;"/>
 
-                  visible="false">
-            </VBox>
+                        <VBox spacing="5" alignment="CENTER">
 
-            <VBox fx:id="policemanActionsBox" spacing="8" alignment="CENTER"
-                  style="-fx-padding: 10; -fx-background-color: #e8f5e9; -fx-border-color: #ccc; -fx-border-radius: 5; -fx-background-radius: 5;"
-                  visible="false">
-                <Label text="Akcje policyjne" style="-fx-font-weight: bold;"/>
-                <HBox spacing="8" alignment="CENTER">
-                    <TextField fx:id="checkDriverIdField" promptText="ID kierowcy" style="-fx-max-width: 150;"/>
-                    <Button text="🔍 Sprawdź" onAction="#onCheckDriverClicked" style="-fx-base: #2196F3;"/>
-                    <TextField fx:id="licensePlateField" promptText="Numer rejestracyjny" style="-fx-max-width: 150;"/>
-                    <Button text="🚗 Sprawdź pojazd" onAction="#onCheckLicensePlateClicked" style="-fx-base: #2196F3;"/>
-                </HBox>
-                <HBox spacing="8" alignment="CENTER">
-                    <HBox spacing="8" alignment="CENTER">
-                        <TextField fx:id="peselFieldPolice" promptText="PESEL" style="-fx-max-width: 150;"/>
-                        <TextField fx:id="nameFieldPolice" promptText="Imię" style="-fx-max-width: 120;"/>
-                        <TextField fx:id="surnameFieldPolice" promptText="Nazwisko" style="-fx-max-width: 150;"/>
-                    </HBox>
+                            <TextField fx:id="usernameField"
+                                       promptText="Nazwa użytkownika"
+                                       style="-fx-max-width: 200;"/>
 
-                </HBox>
-                <HBox spacing="8" alignment="CENTER">
-                    <TextField fx:id="fineAmountField" promptText="Grzywna ($)" style="-fx-max-width: 150;"/>
-                    <TextField fx:id="reasonField" promptText="Powód" style="-fx-max-width: 150;"/>
-                </HBox>
-                <HBox spacing="8" alignment="CENTER">
-                    <TextField fx:id="penaltyPointsField" promptText="Punkty karne" style="-fx-max-width: 150;"/>
-                </HBox>
-                <Button text="📝 Wystaw mandat" onAction="#issuePenaltyTicket" style="-fx-base: #FF9800; -fx-max-width: 200;"/>
-            </VBox>
+                            <PasswordField fx:id="passwordField"
+                                           promptText="Hasło"
+                                           style="-fx-max-width: 200;"/>
 
-            <VBox fx:id="reportBox" spacing="8" alignment="CENTER"
-                  style="-fx-padding: 10; -fx-background-color: white; -fx-border-color: #ccc; -fx-border-radius: 5; -fx-background-radius: 5;"
-                  visible="false">
-                <Label text="Raport dzienny" style="-fx-font-weight: bold;"/>
-                <ScrollPane style="-fx-max-height: 150; -fx-max-width: 250;">
-                    <TextArea fx:id="reportTextArea" promptText="Treść raportu..." wrapText="true"
-                              style="-fx-max-width: 250;"/>
-                </ScrollPane>
-                <Button text="💾 Zapisz raport" onAction="#onSaveReportClicked" style="-fx-base: #607D8B; -fx-max-width: 250;"/>
-            </VBox>
+                            <Button text="Zaloguj się"
+                                    onAction="#onLoginClicked"
+                                    style="-fx-max-width: 200;"/>
 
-            <VBox fx:id="messagingBox" spacing="8" alignment="CENTER"
-                  style="-fx-padding: 10; -fx-background-color: #e3f2fd; -fx-border-color: #ccc; -fx-border-radius: 5; -fx-background-radius: 5;"
-                  visible="false">
-                <Label text="Komunikacja" style="-fx-font-weight: bold;"/>
-                <HBox spacing="8" alignment="CENTER">
-                    <ComboBox fx:id="recipientComboBox" promptText="Wybierz odbiorcę" style="-fx-max-width: 150;"/>
-                    <ScrollPane style="-fx-max-height: 80; -fx-max-width: 150;">
-                        <TextArea fx:id="messageTextArea" promptText="Wpisz wiadomość..." wrapText="true"/>
-                    </ScrollPane>
-                </HBox>
-                <Button text="✉️ Wyślij wiadomość" onAction="#onSendMessageClicked" style="-fx-base: #1976D2; -fx-max-width: 200;"/>
-                <Button text="🔄 Odśwież wiadomości" onAction="#onRefreshMessagesClicked" style="-fx-base: #009688; -fx-max-width: 200;"/>
-                <ScrollPane style="-fx-max-height: 150; -fx-max-width: 250;">
-                    <ListView fx:id="messagesListView"/>
-                </ScrollPane>
-            </VBox>
+                            <Button text="Utwórz konto"
+                                    onAction="#onCreateAccountClicked"
+                                    style="-fx-max-width: 200;"/>
 
-            <VBox fx:id="citizenBox" spacing="8" alignment="CENTER"
-                  style="-fx-padding: 10; -fx-background-color: #f3e5f5; -fx-border-color: #ccc;"
-                  visible="false">
+                        </VBox>
+                    </VBox>
 
-                <Label text="Panel obywatela" style="-fx-font-weight: bold;"/>
+                    <Label fx:id="statusLabel"
+                           text="Brak akcji."
+                           style="-fx-font-weight: bold; -fx-text-fill: #333;"/>
 
-                <HBox spacing="8" alignment="CENTER">
+                    <VBox fx:id="contentBox"
+                          spacing="15"
+                          alignment="TOP_CENTER"
+                          visible="false">
 
-                    <TextField fx:id="citizenIdField" promptText="Twoje ID (PESEL)" style="-fx-max-width: 150;"/>
+                        <VBox fx:id="buttonsBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              style="-fx-padding: 5;"/>
 
-                    <Button text="📊 Punkty"
-                            onAction="#onGetPointsClicked"
-                            style="-fx-base: #673AB7;"/>
+                        <VBox fx:id="managementBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false"/>
 
-                </HBox>
+                        <VBox fx:id="policemanActionsBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false"
+                              style="-fx-padding: 10;
+                                     -fx-background-color: #e8f5e9;
+                                     -fx-border-color: #ccc;
+                                     -fx-border-radius: 5;
+                                     -fx-background-radius: 5;">
 
-                <Button text="🚔 Moje mandaty"
-                        onAction="#onGetTicketsClicked"
-                        style="-fx-base: #3F51B5; -fx-max-width: 200;"/>
+                            <Label text="Akcje policyjne"
+                                   style="-fx-font-weight: bold;"/>
 
-                <ScrollPane style="-fx-max-height: 150; -fx-max-width: 300;">
-                    <ListView fx:id="ticketsListView"/>
-                </ScrollPane>
+                            <HBox spacing="8" alignment="CENTER">
 
-                <HBox spacing="8" alignment="CENTER">
+                                <TextField fx:id="checkDriverIdField"
+                                           promptText="ID kierowcy"
+                                           style="-fx-max-width: 150;"/>
 
-                    <TextField fx:id="ticketIdField" promptText="ID mandatu" style="-fx-max-width: 150;"/>
+                                <Button text="🔍 Sprawdź"
+                                        onAction="#onCheckDriverClicked"/>
 
-                    <Button text="💳 Opłać mandat"
-                            onAction="#onPayTicketClicked"
-                            style="-fx-base: #009688;"/>
+                                <TextField fx:id="licensePlateField"
+                                           promptText="Numer rejestracyjny"
+                                           style="-fx-max-width: 150;"/>
 
-                </HBox>
+                                <Button text="🚗 Sprawdź pojazd"
+                                        onAction="#onCheckLicensePlateClicked"/>
 
-                <TextArea fx:id="citizenOutputArea"
-                          wrapText="true"
-                          prefHeight="120"
-                          style="-fx-max-width: 300;"/>
+                            </HBox>
 
-            </VBox>
+                            <HBox spacing="8" alignment="CENTER">
 
+                                <TextField fx:id="peselFieldPolice"
+                                           promptText="PESEL"
+                                           style="-fx-max-width: 150;"/>
 
+                                <TextField fx:id="nameFieldPolice"
+                                           promptText="Imię"
+                                           style="-fx-max-width: 120;"/>
 
-            <VBox fx:id="problemReportBox" spacing="8" alignment="CENTER"
-                  style="-fx-padding: 10; -fx-background-color: #ffebee; -fx-border-color: #ccc; -fx-border-radius: 5; -fx-background-radius: 5;"
-                  visible="false">
-                <Label text="Zgłoś problem" style="-fx-font-weight: bold;"/>
-                <ScrollPane style="-fx-max-height: 150; -fx-max-width: 250;">
-                    <TextArea fx:id="problemReportTextArea" promptText="Opisz problem..." wrapText="true"/>
-                </ScrollPane>
-                <Button text="📢 Zgłoś problem" onAction="#onReportProblemClicked" style="-fx-base: #F44336; -fx-max-width: 250;"/>
+                                <TextField fx:id="surnameFieldPolice"
+                                           promptText="Nazwisko"
+                                           style="-fx-max-width: 150;"/>
 
-                <VBox fx:id="pendingUsersBox"
-                      spacing="8"
-                      alignment="CENTER"
-                      style="-fx-padding: 10; -fx-background-color: #fff8e1; -fx-border-color: #ccc; -fx-border-radius: 5;"
-                      visible="false">
+                            </HBox>
 
-                    <Label text="⏳ Oczekujące konta" style="-fx-font-weight: bold;"/>
+                            <HBox spacing="8" alignment="CENTER">
 
-                    <ListView fx:id="pendingUsersListView"
-                              prefHeight="150"
-                              prefWidth="300"/>
+                                <TextField fx:id="fineAmountField"
+                                           promptText="Grzywna ($)"
+                                           style="-fx-max-width: 150;"/>
 
+                                <TextField fx:id="reasonField"
+                                           promptText="Powód"
+                                           style="-fx-max-width: 150;"/>
 
+                            </HBox>
 
-                    <VBox spacing="8" alignment="CENTER"
-                          style="-fx-background-color: #eeeeee; -fx-padding: 10;">
+                            <HBox spacing="8" alignment="CENTER">
 
-                        <Label text="📊 Baza użytkowników (admin)" />
+                                <TextField fx:id="penaltyPointsField"
+                                           promptText="Punkty karne"
+                                           style="-fx-max-width: 150;"/>
 
-                        <ListView fx:id="allUsersListView"
-                                  prefHeight="150"
-                                  prefWidth="300"/>
+                            </HBox>
 
-                        <HBox spacing="8" alignment="CENTER">
+                            <Button text="📝 Wystaw mandat"
+                                    onAction="#issuePenaltyTicket"
+                                    style="-fx-max-width: 200;"/>
 
-                            <Button text="🔄 Odśwież"
-                                    onAction="#onLoadAllUsers"/>
-                            <Button text="🚓 Stwórz patrol" onAction="#onCreatePatrolClicked"/>
-                            <Button text="🚓 Patrole" onAction="#onLoadPatrolsClicked"/>
+                        </VBox>
 
+                        <VBox fx:id="reportBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false"
+                              style="-fx-padding: 10;
+                                     -fx-background-color: white;
+                                     -fx-border-color: #ccc;
+                                     -fx-border-radius: 5;
+                                     -fx-background-radius: 5;">
 
-                        </HBox>
+                            <Label text="Raport dzienny"
+                                   style="-fx-font-weight: bold;"/>
+
+                            <TextArea fx:id="reportTextArea"
+                                      wrapText="true"
+                                      prefHeight="150"
+                                      prefWidth="300"/>
+
+                            <Button text="💾 Zapisz raport"
+                                    onAction="#onSaveReportClicked"/>
+
+                            <Button text="💾 Wyświetl raport"
+                                    onAction="#onLoadReportsClicked"/>
+
+                            <Button text="Moje raporty"
+                                    onAction="#onMyReportsClicked"/>
+
+                            <Button text="💾 Dodaj lokalizację"
+                                    onAction="#onAddLokalizationClicked"/>
+
+                        </VBox>
+
+                        <VBox fx:id="messagingBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false"
+                              style="-fx-padding: 10;
+                                     -fx-background-color: #e3f2fd;
+                                     -fx-border-color: #ccc;
+                                     -fx-border-radius: 5;
+                                     -fx-background-radius: 5;">
+
+                            <Label text="Komunikacja"
+                                   style="-fx-font-weight: bold;"/>
+
+                            <ComboBox fx:id="recipientComboBox"
+                                      prefWidth="250"/>
+
+                            <TextArea fx:id="messageTextArea"
+                                      wrapText="true"
+                                      prefHeight="100"
+                                      prefWidth="300"/>
+
+                            <Button text="✉️ Wyślij wiadomość"
+                                    onAction="#onSendMessageClicked"/>
+
+                            <Button text="🔄 Odśwież wiadomości"
+                                    onAction="#onRefreshMessagesClicked"/>
+
+                            <ListView fx:id="messagesListView"
+                                      prefHeight="150"
+                                      prefWidth="320"/>
+
+                        </VBox>
+
+                        <VBox fx:id="citizenBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false"
+                              style="-fx-padding: 10;
+                                     -fx-background-color: #f3e5f5;
+                                     -fx-border-color: #ccc;">
+
+                            <Label text="Panel obywatela"/>
+
+                            <TextField fx:id="citizenIdField"
+                                       promptText="PESEL"/>
+
+                            <Button text="📊 Punkty"
+                                    onAction="#onGetPointsClicked"/>
+
+                            <Button text="🚔 Moje mandaty"
+                                    onAction="#onGetTicketsClicked"/>
+
+                            <ListView fx:id="ticketsListView"
+                                      prefHeight="150"
+                                      prefWidth="320"/>
+
+                            <TextField fx:id="ticketIdField"
+                                       promptText="ID mandatu"/>
+
+                            <Button text="💳 Opłać mandat"
+                                    onAction="#onPayTicketClicked"/>
+
+                        </VBox>
+
+                        <VBox fx:id="problemReportBox"
+                              spacing="8"
+                              alignment="CENTER"
+                              visible="false">
+
+                            <TextArea fx:id="problemReportTextArea"
+                                      prefHeight="100"
+                                      prefWidth="300"/>
+
+                            <Button text="📢 Zgłoś problem"
+                                    onAction="#onReportProblemClicked"/>
+
+                            <VBox fx:id="pendingUsersBox"
+                                  visible="false"
+                                  spacing="8">
+
+                                <ListView fx:id="pendingUsersListView"
+                                          prefHeight="120"/>
+
+                                <ListView fx:id="allUsersListView"
+                                          prefHeight="120"/>
+
+                                <Button text="🔄 Odśwież"
+                                        onAction="#onLoadAllUsers"/>
+
+                                <Button text="🚓 Stwórz patrol"
+                                        onAction="#onCreatePatrolClicked"/>
+
+                                <Button text="🚓 Patrole"
+                                        onAction="#onLoadPatrolsClicked"/>
+
+                                <Button text="Zgłoszenia"
+                                        onAction="#onLoadIncidentsClicked"/>
+
+                                <Button text="Statystyki"
+                                        onAction="#onShowStatisticsClicked"/>
+
+                            </VBox>
+
+                        </VBox>
 
                     </VBox>
 
+                    <Button fx:id="logoutButton"
+                            text="Wyloguj się"
+                            onAction="#onLogoutClicked"/>
+
+                    <Button fx:id="changepasswordButton"
+                            text="Zmień hasło"
+                            onAction="#onChangePasswordClicked"/>
+
                 </VBox>
-            </VBox>
-        </VBox>
-        <Button fx:id="logoutButton" text="Wyloguj się" onAction="#onLogoutClicked" style="-fx-base: #9E9E9E; -fx-max-width: 200;"/>
-        <Button fx:id="changepasswordButton" text="Zmień hasło" onAction="#onChangePasswordClicked" style="-fx-base: #9E9E9E; -fx-max-width: 200;"/>
-    </VBox>
-</ScrollPane>
+
+            </content>
+
+        </ScrollPane>
+
+    </left>
+
+    <center>
+
+        <AnchorPane fx:id="mapContainer"
+                    minWidth="600"
+                    minHeight="600"
+                    style="-fx-background-color: #eeeeee;">
+        </AnchorPane>
+
+    </center>
+
+</BorderPane>

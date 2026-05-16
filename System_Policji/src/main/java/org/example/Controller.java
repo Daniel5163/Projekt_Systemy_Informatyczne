@@ -21,6 +21,34 @@ import java.io.PrintWriter;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
+import java.util.Map;
+import java.util.HashMap;
+
+import java.util.LinkedHashMap;
+
+import java.util.function.Consumer;
+
+import javafx.scene.layout.HBox;
+import javafx.scene.control.Button;
+
+import javafx.concurrent.Worker;
+import javafx.scene.Scene;
+import javafx.scene.web.WebEngine;
+import javafx.scene.web.WebView;
+import javafx.stage.Stage;
+import netscape.javascript.JSObject;
+
+
+import javafx.scene.layout.AnchorPane;
+
+import javafx.stage.Screen;
+import javafx.geometry.Rectangle2D;
+
+import javafx.application.Platform;
+import javafx.animation.PauseTransition;
+import javafx.util.Duration;
+
+
 public class Controller {
 
     @FXML private VBox loginPane;
@@ -77,7 +105,12 @@ public class Controller {
     @FXML private TextField surnameFieldPolice;
 
 
+    @FXML private Button dayStatsButton;
+    @FXML private Button weekStatsButton;
+    @FXML private Button monthStatsButton;
 
+    @FXML
+    private AnchorPane mapContainer;
 
 
 
@@ -106,7 +139,7 @@ public class Controller {
         String user = usernameField.getText();
         String pass = passwordField.getText();
 
-        String res = send("LOGIN " + user + " " + pass);
+        String res = send("LOGIN|" + user + "|" + pass);
 
         if (res.startsWith("SUCCESS:")) {
             currentRole = res.split(":")[1];
@@ -125,7 +158,7 @@ public class Controller {
 
     @FXML
     protected void onLogoutClicked() {
-        send("LOGOUT " + currentUser);
+        send("LOGOUT|" + currentUser);
 
         currentUser = null;
         currentRole = null;
@@ -173,9 +206,9 @@ public class Controller {
 
     @FXML
     protected void addUser() {
-        String res = send("ADD_USER " + currentUser + " "
-                + newUserField.getText() + " "
-                + newPasswordField.getText() + " "
+        String res = send("ADD_USER|" + currentUser + "|"
+                + newUserField.getText() + "|"
+                + newPasswordField.getText() + "|"
                 + newRoleField.getValue());
 
         showPopup("Dodawanie użytkownika", res);
@@ -183,26 +216,57 @@ public class Controller {
 
     @FXML
     protected void removeUser() {
-        String res = send("REMOVE_USER " + currentUser + " " + newUserField.getText());
+        String res = send("REMOVE_USER|" + currentUser + "|" + newUserField.getText());
         showPopup("Usuwanie użytkownika", res);
     }
 
     @FXML
     protected void onCheckUserClicked() {
         showPopup("Sprawdzenie użytkownika",
-                send("CHECK_USER " + currentUser + " " + checkUserField.getText()));
+                send("CHECK_USER|" + currentUser + "|" + checkUserField.getText()));
     }
 
     @FXML
     protected void onCheckDriverClicked() {
         showPopup("Kierowca",
-                send("CHECK_DRIVER " + currentUser + " " + checkDriverIdField.getText()));
+                send("CHECK_DRIVER|" + currentUser + "|" + checkDriverIdField.getText()));
     }
 
     @FXML
     protected void onCheckLicensePlateClicked() {
-        showPopup("Pojazd",
-                send("CHECK_PLATE " + currentUser + " " + licensePlateField.getText()));
+
+        String res = send("CHECK_PLATE|" + currentUser + "|" + licensePlateField.getText());
+
+        if (res == null || res.isBlank()) {
+            showPopup("Pojazd", "Brak danych");
+            return;
+        }
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Informacje o pojeździe");
+        alert.setHeaderText("Szczegóły pojazdu + właściciel");
+
+        TextArea area = new TextArea(res
+                .replace(";;", "\n")
+                .replace("|", " | ")
+        );
+
+        area.setEditable(false);
+        area.setWrapText(true);
+        area.setPrefHeight(350);
+        area.setPrefWidth(600);
+
+        ScrollPane scroll = new ScrollPane(area);
+        scroll.setFitToWidth(true);
+        scroll.setPrefViewportHeight(400);
+
+        VBox box = new VBox(scroll);
+        box.setPadding(new Insets(10));
+
+        alert.getDialogPane().setContent(box);
+        alert.getDialogPane().setPrefSize(650, 500);
+
+        alert.showAndWait();
     }
 
     @FXML
@@ -227,13 +291,13 @@ public class Controller {
             return;
         }
 
-        String cmd = "ISSUE_TICKET "
-                + currentUser + " "
-                + pesel + " "
-                + name + " "
-                + surname + " "
-                + points + " "
-                + fine + " "
+        String cmd = "ISSUE_TICKET|"
+                + currentUser + "|"
+                + pesel + "|"
+                + name + "|"
+                + surname + "|"
+                + points + "|"
+                + fine + "|"
                 + reason.replace(" ", "_");
 
         showPopup("Mandat", send(cmd));
@@ -242,22 +306,22 @@ public class Controller {
     @FXML
     protected void onSaveReportClicked() {
         showPopup("Raport",
-                send("SAVE_REPORT " + currentUser + " " + currentRole + " " +
-                        reportTextArea.getText().replace(" ", "_")));
+                send("SAVE_REPORT|" + currentUser + "|" + currentRole + "|" +
+                        reportTextArea.getText().replace("|", "_")));
     }
 
     @FXML
     protected void onSendMessageClicked() {
-        String res = send("SEND_MSG " + currentUser + " "
-                + recipientComboBox.getValue() + " "
-                + messageTextArea.getText().replace(" ", "_"));
+        String res = send("SEND_MSG|" + currentUser + "|"
+                + recipientComboBox.getValue() + "|"
+                + messageTextArea.getText().replace("|", "_"));
 
         showPopup("Wiadomość", res);
     }
 
     @FXML
     protected void onRefreshMessagesClicked() {
-        String res = send("GET_MSGS " + currentUser);
+        String res = send("GET_MSGS|" + currentUser);
 
         if (res.startsWith("SUCCESS:")) {
             messagesListView.getItems().setAll(res.substring(8).split(";;"));
@@ -269,7 +333,7 @@ public class Controller {
     @FXML
     protected void onGetPointsClicked() {
         showPopup("Punkty",
-                send("GET_POINTS " + citizenIdField.getText()));
+                send("GET_POINTS|" + citizenIdField.getText()));
     }
 
     @FXML
@@ -282,7 +346,7 @@ public class Controller {
             return;
         }
 
-        String res = send("GET_TICKETS " + pesel);
+        String res = send("GET_TICKETS|" + pesel);
 
         if (!res.startsWith("SUCCESS:")) {
             showPopup("Błąd", res);
@@ -302,7 +366,7 @@ public class Controller {
 
             String[] p = t.split(",");
 
-            if (p.length < 4) continue; // zabezpieczenie
+            if (p.length < 4) continue;
 
             String display =
                     "ID: " + p[0] +
@@ -419,17 +483,17 @@ public class Controller {
                     default -> "citizen";
                 };
 
-                String cmd = "ADD_USER " + currentUser + " "
-                        + loginField.getText() + " "
-                        + passwordField.getText() + " "
+                String cmd = "ADD_USER|" + currentUser + "|"
+                        + loginField.getText() + "|"
+                        + passwordField.getText() + "|"
                         + role;
 
                 if ("man".equals(role)) {
-                    cmd += " " + policeIdField.getText();
+                    cmd += "|" + policeIdField.getText();
                 }
 
                 if ("citizen".equals(role)) {
-                    cmd += " " + peselField.getText();
+                    cmd += "|" + peselField.getText();
                 }
 
                 showPopup("Tworzenie konta", send(cmd));
@@ -440,20 +504,55 @@ public class Controller {
     @FXML
     protected void onPayTicketClicked() {
         showPopup("Płatność",
-                send("PAY_TICKET " + ticketIdField.getText()));
+                send("PAY_TICKET|" + ticketIdField.getText()));
     }
 
     @FXML
     protected void onReportProblemClicked() {
-        showPopup("Zgłoszenie",
-                send("ADD_INCIDENT " +
-                        problemReportTextArea.getText().replace(" ", "_")));
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Zgłoś problem");
+
+        TextField addressField = new TextField();
+        addressField.setPromptText("Adres");
+
+        TextArea reasonArea = new TextArea();
+        reasonArea.setPromptText("Powód zgłoszenia");
+        reasonArea.setWrapText(true);
+
+        VBox box = new VBox(10,
+                new Label("Adres:"), addressField,
+                new Label("Powód:"), reasonArea
+        );
+
+        dialog.getDialogPane().setContent(box);
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        dialog.showAndWait().ifPresent(result -> {
+
+            if (result == ButtonType.OK) {
+
+                if (addressField.getText().isBlank() || reasonArea.getText().isBlank()) {
+                    showPopup("Błąd", "Uzupełnij wszystkie pola");
+                    return;
+                }
+
+                String cmd =
+                        "ADD_INCIDENT|" +
+                                currentUser + "|" +
+                                addressField.getText().replace("|", "_") + "|" +
+                                reasonArea.getText().replace("|", "_");
+
+                showPopup("Zgłoszenie", send(cmd));
+            }
+        });
     }
 
     @FXML
     protected void onRefreshPendingUsers() {
 
-        String res = send("GET_PENDING_USERS " + currentUser);
+        String res = send("GET_PENDING_USERS|" + currentUser);
 
         if (!res.startsWith("SUCCESS:")) {
             showPopup("Błąd", res);
@@ -480,7 +579,7 @@ public class Controller {
             return;
         }
 
-        String res = send("APPROVE_USER " + currentUser + " " + user);
+        String res = send("APPROVE_USER|" + currentUser + "|" + user);
 
         showPopup("Zatwierdzanie", res);
 
@@ -490,7 +589,7 @@ public class Controller {
     @FXML
     protected void onLoadAllUsers() {
 
-        String res = send("GET_ALL_USERS " + currentUser);
+        String res = send("GET_ALL_USERS|" + currentUser);
 
         if (!res.startsWith("SUCCESS:")) {
             showPopup("Błąd", res);
@@ -517,52 +616,82 @@ public class Controller {
             return;
         }
 
-        String res = send("DELETE_USER " + currentUser + " " + user);
+        String res = send("DELETE_USER|" + currentUser + "|" + user);
 
         showPopup("Usuwanie", res);
 
-        onLoadAllUsers(); // refresh
+        onLoadAllUsers();
     }
 
     @FXML
     protected void initialize() {
 
+        WebView webView = new WebView();
+        webView.setContextMenuEnabled(false);
+        webView.setZoom(1.0);
+
+        webView.setPrefWidth(1400);
+        webView.setPrefHeight(900);
+        webView.setMaxWidth(Double.MAX_VALUE);
+        webView.setMaxHeight(Double.MAX_VALUE);
+
+        AnchorPane.setTopAnchor(webView, 0.0);
+        AnchorPane.setBottomAnchor(webView, 0.0);
+        AnchorPane.setLeftAnchor(webView, 0.0);
+        AnchorPane.setRightAnchor(webView, 0.0);
+
+        mapContainer.getChildren().clear();
+        mapContainer.getChildren().add(webView);
+
+        WebEngine engine = webView.getEngine();
+
+        engine.load(getClass().getResource("/map.html").toExternalForm());
+
+        engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
+            if (newState == Worker.State.SUCCEEDED) {
+                Platform.runLater(() -> {
+                    setupJavaBridge(engine);
+                    forceMapResizeAggressive(engine);
+                });
+            }
+        });
+
+        mapContainer.widthProperty().addListener((obs, old, n) -> forceMapResizeAggressive(engine));
+        mapContainer.heightProperty().addListener((obs, old, n) -> forceMapResizeAggressive(engine));
+
+        Platform.runLater(() -> {
+            if (mapContainer.getScene() != null && mapContainer.getScene().getWindow() != null) {
+                var stage = mapContainer.getScene().getWindow();
+                stage.widthProperty().addListener((obs, o, n) -> forceMapResizeAggressive(engine));
+                stage.heightProperty().addListener((obs, o, n) -> forceMapResizeAggressive(engine));
+
+                PauseTransition initial = new PauseTransition(Duration.millis(600));
+                initial.setOnFinished(e -> forceMapResizeAggressive(engine));
+                initial.play();
+            }
+        });
+
         pendingUsersListView.setOnMouseClicked(event -> {
-
             if (event.getClickCount() == 2) {
-
-                String selected = pendingUsersListView
-                        .getSelectionModel()
-                        .getSelectedItem();
-
-                if (selected != null && !selected.equals("Brak oczekujących kont")) {
+                String selected = pendingUsersListView.getSelectionModel().getSelectedItem();
+                if (selected != null && !selected.contains("Brak oczekujących")) {
                     showPendingUserDialog(selected);
                 }
             }
         });
 
         allUsersListView.setOnMouseClicked(event -> {
-
             if (event.getClickCount() == 2) {
-
-                String selected = allUsersListView
-                        .getSelectionModel()
-                        .getSelectedItem();
-
-                if (selected != null && !selected.equals("Brak użytkowników")) {
+                String selected = allUsersListView.getSelectionModel().getSelectedItem();
+                if (selected != null && !selected.contains("Brak użytkowników")) {
                     showDeleteUserDialog(selected);
                 }
             }
         });
 
         ticketsListView.setOnMouseClicked(event -> {
-
             if (event.getClickCount() == 2) {
-
-                String selected = ticketsListView
-                        .getSelectionModel()
-                        .getSelectedItem();
-
+                String selected = ticketsListView.getSelectionModel().getSelectedItem();
                 if (selected != null && !selected.contains("Brak mandatów")) {
                     showTicketDialog(selected);
                 }
@@ -628,9 +757,9 @@ public class Controller {
 
             if (result == ButtonType.OK) {
 
-                String cmd = "CHANGE_PASSWORD "
-                        + currentUser + " "
-                        + oldPassField.getText() + " "
+                String cmd = "CHANGE_PASSWORD|"
+                        + currentUser + "|"
+                        + oldPassField.getText() + "|"
                         + newPassField.getText();
 
                 String res = send(cmd);
@@ -644,23 +773,40 @@ public class Controller {
     public void onCreatePatrolClicked() {
 
         try {
+
             Socket s = new Socket("localhost", 5556);
-            PrintWriter out = new PrintWriter(s.getOutputStream(), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
+
+            PrintWriter out =
+                    new PrintWriter(s.getOutputStream(), true);
+
+            BufferedReader in =
+                    new BufferedReader(
+                            new InputStreamReader(s.getInputStream())
+                    );
 
             out.println("GET_POLICEMEN");
 
             String response = in.readLine();
 
             if (response == null || !response.startsWith("SUCCESS:")) {
-                showPopup("Błąd", "Nie udało się pobrać policjantów");
+
+                showPopup(
+                        "Błąd",
+                        "Nie udało się pobrać policjantów"
+                );
+
                 return;
             }
 
             String data = response.substring(8);
 
             if (data.isBlank()) {
-                showPopup("Info", "Brak policjantów w bazie");
+
+                showPopup(
+                        "Info",
+                        "Brak policjantów w bazie"
+                );
+
                 return;
             }
 
@@ -670,73 +816,146 @@ public class Controller {
 
                 String[] parts = p.split("\\|");
 
-                String username = parts[0];
-                String id = parts.length > 1 ? parts[1] : "-";
+                String username =
+                        parts.length > 0
+                                ? parts[0]
+                                : "unknown";
 
-                CheckBox cb = new CheckBox(username + " (ID: " + id + ")");
+                String role =
+                        parts.length > 1
+                                ? parts[1]
+                                : "-";
 
-                cb.setUserData(p);
+                String id =
+                        parts.length > 2
+                                ? parts[2]
+                                : "-";
+
+                CheckBox cb = new CheckBox(
+                        username +
+                                " | " +
+                                role +
+                                " | ID: " +
+                                id
+                );
+
+                cb.setUserData(username);
 
                 listView.getItems().add(cb);
             }
 
-            Button createBtn = new Button("Stwórz patrol");
+            Button createBtn =
+                    new Button("Stwórz patrol");
 
-            VBox layout = new VBox(10, listView, createBtn);
+            VBox layout =
+                    new VBox(10, listView, createBtn);
+
             layout.setPadding(new Insets(10));
 
             Stage stage = new Stage();
-            stage.setScene(new Scene(layout, 320, 450));
+
+            stage.setScene(
+                    new Scene(layout, 350, 500)
+            );
+
             stage.setTitle("Tworzenie patrolu");
+
             stage.show();
 
             createBtn.setOnAction(e -> {
 
-                List<String> selected = new ArrayList<>();
+                List<String> selected =
+                        new ArrayList<>();
 
                 for (CheckBox cb : listView.getItems()) {
+
                     if (cb.isSelected()) {
-                        selected.add((String) cb.getUserData());
+
+                        selected.add(
+                                (String) cb.getUserData()
+                        );
                     }
                 }
 
                 if (selected.isEmpty()) {
-                    showPopup("Błąd", "Wybierz co najmniej jednego policjanta");
+
+                    showPopup(
+                            "Błąd",
+                            "Wybierz co najmniej jednego policjanta"
+                    );
+
                     return;
                 }
 
-                String members = String.join(",", selected);
+                String members =
+                        String.join(",", selected);
 
                 try {
-                    Socket s2 = new Socket("localhost", 5556);
-                    PrintWriter out2 = new PrintWriter(s2.getOutputStream(), true);
-                    BufferedReader in2 = new BufferedReader(new InputStreamReader(s2.getInputStream()));
 
-                    out2.println("CREATE_PATROL " + currentUser + " " + members);
+                    Socket s2 =
+                            new Socket("localhost", 5556);
+
+                    PrintWriter out2 =
+                            new PrintWriter(
+                                    s2.getOutputStream(),
+                                    true
+                            );
+
+                    BufferedReader in2 =
+                            new BufferedReader(
+                                    new InputStreamReader(
+                                            s2.getInputStream()
+                                    )
+                            );
+
+                    String cmd =
+                            "CREATE_PATROL|"
+                                    + currentUser
+                                    + "|"
+                                    + members;
+
+                    System.out.println(
+                            "SEND: " + cmd
+                    );
+
+                    out2.println(cmd);
 
                     String res = in2.readLine();
+
+                    if (res == null) {
+                        res = "ERROR: brak odpowiedzi serwera";
+                    }
 
                     showPopup("Patrol", res);
 
                     stage.close();
 
                 } catch (Exception ex) {
-                    ex.printStackTrace();
-                    showPopup("Błąd", "Nie udało się utworzyć patrolu");
-                }
 
+                    ex.printStackTrace();
+
+                    showPopup(
+                            "Błąd",
+                            "Nie udało się utworzyć patrolu"
+                    );
+                }
             });
 
         } catch (Exception e) {
+
             e.printStackTrace();
-            showPopup("Błąd", "Brak połączenia z serwerem");
+
+            showPopup(
+                    "Błąd",
+                    "Brak połączenia z serwerem"
+            );
         }
     }
 
     @FXML
     protected void onLoadPatrolsClicked() {
 
-        String response = send("GET_PATROLS " + currentUser);
+        String response = send("GET_PATROLS_DISPATCHES|" + currentUser);
 
         if (!response.startsWith("SUCCESS:")) {
             showPopup("Błąd", response);
@@ -752,15 +971,74 @@ public class Controller {
         root.setPadding(new Insets(10));
 
         if (data.isBlank() || data.equals("Brak patroli")) {
-
             root.getChildren().add(new Label("Brak patroli 🚓"));
-
         } else {
 
-            for (String patrol : data.split(";;")) {
+            Map<String, PatrolUIData> patrolMap = new LinkedHashMap<>();
 
-                VBox patrolBox = new VBox(10);
+            for (String row : data.split(";;")) {
 
+                String[] p = row.split("\\|");
+
+                if (p.length < 3) continue;
+
+                String patrolId = p[0].trim();
+                String createdBy = p[1].trim();
+                String createdAt = p[2].trim();
+
+                String dispatches = "";
+
+                if (p.length > 3) {
+
+                    StringBuilder sb = new StringBuilder();
+
+                    for (int i = 3; i < p.length; i++) {
+
+                        sb.append(p[i]);
+
+                        if (i < p.length - 1) {
+                            sb.append("|");
+                        }
+                    }
+
+                    dispatches = sb.toString();
+                }
+
+                PatrolUIData patrol =
+                        patrolMap.computeIfAbsent(
+                                patrolId,
+                                k -> new PatrolUIData(createdBy, createdAt)
+                        );
+
+                if (!dispatches.isBlank()) {
+
+                    for (String d : dispatches.split("##")) {
+
+                        String[] dp = d.split("\\|");
+
+                        String incidentId =
+                                dp.length > 0 ? dp[0] : "-";
+
+                        String address =
+                                dp.length > 1 ? dp[1] : "brak adresu";
+
+                        String time =
+                                dp.length > 2 ? dp[2] : "-";
+
+                        patrol.dispatches.add(
+                                "🚨 Incident #" + incidentId +
+                                        " | 📍 " + address +
+                                        " | 🕒 " + time
+                        );
+                    }
+                }
+            }
+
+            for (String patrolId : patrolMap.keySet()) {
+
+                PatrolUIData dataObj = patrolMap.get(patrolId);
+
+                VBox patrolBox = new VBox(8);
                 patrolBox.setStyle("""
                 -fx-background-color: white;
                 -fx-border-color: #cccccc;
@@ -769,111 +1047,70 @@ public class Controller {
                 -fx-background-radius: 5;
             """);
 
-                String[] split = patrol.split("->");
+                Label title = new Label(
+                        "🚓 Patrol #" + patrolId +
+                                " | " + dataObj.createdBy +
+                                " | " + dataObj.createdAt
+                );
 
-                String info = split[0].trim();
-                String members = split.length > 1 ? split[1].trim() : "";
+                VBox actionsBox = new VBox(5);
 
-                final String patrolId = info
-                        .split("\\|")[0]
-                        .replace("Patrol #", "")
-                        .trim();
+                if (dataObj.dispatches.isEmpty()) {
 
-                Label infoLabel = new Label("🚓 " + info);
+                    Label empty = new Label("📭 Brak akcji");
+                    empty.setStyle("-fx-text-fill: gray;");
+                    actionsBox.getChildren().add(empty);
 
-                TextArea membersArea = new TextArea(members);
-                membersArea.setEditable(false);
-                membersArea.setWrapText(true);
-                membersArea.setPrefHeight(80);
+                } else {
+
+                    for (String d : dataObj.dispatches) {
+                        Label lbl = new Label(d);
+                        lbl.setStyle("-fx-text-fill: red;");
+                        actionsBox.getChildren().add(lbl);
+                    }
+                }
 
                 TextField locationField = new TextField();
-                locationField.setPromptText("Wpisz adres patrolu");
-
-                Label statusLabel = new Label();
+                locationField.setPromptText("Adres akcji patrolu");
 
                 Button sendBtn = new Button("📍 Wyślij patrol");
-                Button checkBtn = new Button("📏 Sprawdź lokalizację");
-                Button deleteBtn = new Button("🗑 Usuń patrol");
+                Button sendFromIncidentBtn = new Button("🚨 Ze zgłoszenia");
+                Button checkBtn = new Button("📏 Sprawdź");
+                Button deleteBtn = new Button("🗑 Usuń");
 
-                sendBtn.setStyle("-fx-base: #2196F3;");
-                checkBtn.setStyle("-fx-base: #FFC107;");
-                deleteBtn.setStyle("-fx-base: #e53935;");
+                Label distanceLabel = new Label();
 
                 sendBtn.setOnAction(e -> {
-
                     String address = locationField.getText();
-
                     if (address.isBlank()) {
                         showPopup("Błąd", "Podaj adres");
                         return;
                     }
 
-                    String cmd = "SEND_PATROL " + currentUser + " " + patrolId + " " + address;
-
-                    String res = send(cmd);
-
+                    String res = send("SEND_PATROL|" + currentUser + "|" + patrolId + "|" + address);
                     showPopup("Patrol", res);
                 });
 
                 checkBtn.setOnAction(e -> {
-
-                    String address = locationField.getText();
-
-                    if (address.isBlank()) {
-                        showPopup("Błąd", "Podaj adres");
-                        return;
-                    }
-
                     double distance = Math.random() * 20;
-
-                    String status;
-
-                    if (distance < 3) {
-                        status = "🟢 bardzo blisko";
-                    } else if (distance < 10) {
-                        status = "🟡 średnio daleko";
-                    } else {
-                        status = "🔴 daleko";
-                    }
-
-                    statusLabel.setText(
-                            "Odległość: " + String.format("%.1f km", distance)
-                                    + " | " + status
-                    );
+                    distanceLabel.setText("Odległość: " + String.format("%.1f km", distance));
                 });
 
                 deleteBtn.setOnAction(e -> {
-
-                    Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-                    confirm.setTitle("Usuwanie patrolu");
-                    confirm.setHeaderText("Czy usunąć patrol #" + patrolId + "?");
-
-                    confirm.showAndWait().ifPresent(result -> {
-
-                        if (result == ButtonType.OK) {
-
-                            String res = send(
-                                    "DELETE_PATROL "
-                                            + currentUser + " "
-                                            + patrolId
-                            );
-
-                            showPopup("Patrol", res);
-
-                            stage.close();
-                            onLoadPatrolsClicked(); // refresh
-                        }
-                    });
+                    String res = send("DELETE_PATROL|" + currentUser + "|" + patrolId);
+                    showPopup("Usuwanie", res);
+                    onLoadPatrolsClicked();
                 });
 
                 patrolBox.getChildren().addAll(
-                        infoLabel,
-                        membersArea,
+                        title,
+                        actionsBox,
                         locationField,
-                        statusLabel,
                         sendBtn,
+                        sendFromIncidentBtn,
                         checkBtn,
-                        deleteBtn
+                        deleteBtn,
+                        distanceLabel
                 );
 
                 root.getChildren().add(patrolBox);
@@ -887,13 +1124,536 @@ public class Controller {
         stage.show();
     }
 
+    class PatrolUIData {
+        String createdBy;
+        String createdAt;
+        List<String> dispatches = new ArrayList<>();
+
+        PatrolUIData(String createdBy, String createdAt) {
+            this.createdBy = createdBy;
+            this.createdAt = createdAt;
+        }
+    }
+
+    @FXML
+    public void onAddLokalizationClicked() {
+
+        try {
+
+            Stage stage = new Stage();
+
+            WebView webView = new WebView();
+
+            webView.setZoom(1.0);
+            webView.setContextMenuEnabled(false);
+
+            WebEngine engine = webView.getEngine();
+
+            AnchorPane pane = new AnchorPane(webView);
+
+            AnchorPane.setTopAnchor(webView, 0.0);
+            AnchorPane.setBottomAnchor(webView, 0.0);
+            AnchorPane.setLeftAnchor(webView, 0.0);
+            AnchorPane.setRightAnchor(webView, 0.0);
+
+            webView.prefWidthProperty().bind(pane.widthProperty());
+            webView.prefHeightProperty().bind(pane.heightProperty());
+
+            Rectangle2D screen =
+                    Screen.getPrimary().getVisualBounds();
+
+            Scene scene = new Scene(
+                    pane,
+                    screen.getWidth(),
+                    screen.getHeight()
+            );
+
+            stage.setScene(scene);
+
+            stage.setTitle("Mapa patrolu");
+
+            engine.load(
+                    getClass()
+                            .getResource("/map.html")
+                            .toExternalForm()
+            );
+
+            engine.getLoadWorker().stateProperty().addListener(
+                    (obs, oldState, newState) -> {
+
+                        if (newState == Worker.State.SUCCEEDED) {
+
+                            try {
+
+                                JSObject window =
+                                        (JSObject) engine.executeScript("window");
+
+                                window.setMember(
+                                        "javaBridge",
+                                        new MapBridge(
+                                                currentUser != null
+                                                        ? currentUser
+                                                        : "guest"
+                                        )
+                                );
+
+                                forceMapResize(engine);
+
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+            );
+
+            pane.widthProperty().addListener(
+                    (obs, oldVal, newVal) ->
+                            forceMapResize(engine)
+            );
+
+            pane.heightProperty().addListener(
+                    (obs, oldVal, newVal) ->
+                            forceMapResize(engine)
+            );
+
+            stage.show();
+
+            Platform.runLater(() -> forceMapResize(engine));
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            showPopup(
+                    "Błąd",
+                    "Nie udało się otworzyć mapy"
+            );
+        }
+    }
+
+    @FXML
+    protected void onLoadIncidentsClicked() {
+
+        String response = send("GET_INCIDENTS|" + currentUser);
+
+        if (!response.startsWith("SUCCESS:")) {
+            showPopup("Błąd", response);
+            return;
+        }
+
+        String data = response.substring(8);
+
+        if (data.isBlank() || data.equals("Brak zgłoszeń")) {
+            showPopup("Info", "Brak zgłoszeń");
+            return;
+        }
+
+        ListView<String> listView = new ListView<>();
+
+        for (String incident : data.split(";;")) {
+            listView.getItems().add(incident);
+        }
+
+        Button openBtn = new Button("Otwórz zdarzenie");
+
+        VBox layout = new VBox(10, listView, openBtn);
+        layout.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Zgłoszenia");
+
+        stage.setScene(new Scene(layout, 600, 400));
+        stage.show();
+
+        openBtn.setOnAction(e -> {
+
+            String selected = listView.getSelectionModel().getSelectedItem();
+
+            if (selected == null) {
+                showPopup("Błąd", "Wybierz zgłoszenie");
+                return;
+            }
+
+            showIncidentDetails(selected, stage);
+        });
+    }
+
+    @FXML
+    protected void onShowStatisticsClicked() {
+
+        ListView<String> listView = new ListView<>();
+
+        Button dayBtn = new Button("Dzień");
+        Button weekBtn = new Button("Tydzień");
+        Button monthBtn = new Button("Miesiąc");
+
+        HBox buttons = new HBox(10, dayBtn, weekBtn, monthBtn);
+
+        VBox root = new VBox(10, listView, buttons);
+        root.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Statystyki mandatów");
+        stage.setScene(new Scene(root, 450, 350));
+        stage.show();
+
+        Consumer<String> loadStats = (mode) -> {
+
+            String res = send("GET_STATS|" + currentUser + "|" + mode);
+
+            listView.getItems().clear();
+
+            if (!res.startsWith("SUCCESS:")) {
+                listView.getItems().add("Błąd: " + res);
+                return;
+            }
+
+            String data = res.substring(8);
+
+            if (data.isBlank() || data.equals("Brak danych")) {
+                listView.getItems().add("Brak danych");
+                return;
+            }
+
+            for (String stat : data.split(",")) {
+
+                String[] s = stat.split("=");
+
+                if (s.length < 2) continue;
+
+                listView.getItems().add("🚨 " + s[0] + " → " + s[1]);
+            }
+        };
+
+        dayBtn.setOnAction(e -> loadStats.accept("DAY"));
+        weekBtn.setOnAction(e -> loadStats.accept("WEEK"));
+        monthBtn.setOnAction(e -> loadStats.accept("MONTH"));
+
+        loadStats.accept("WEEK");
+    }
+
+    @FXML
+    protected void onLoadReportsClicked() {
+
+        String res = send("GET_PENDING_REPORTS|" + currentUser);
+
+        if (res == null || !res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", "Nieprawidłowa odpowiedź serwera: " + res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        ListView<String> listView = new ListView<>();
+
+        if (data == null || data.isBlank() || data.equals("EMPTY")) {
+            listView.getItems().add("Brak raportów");
+        } else {
+            for (String r : data.split(";;")) {
+                if (!r.isBlank()) {
+                    listView.getItems().add(r);
+                }
+            }
+        }
+
+        Button openBtn = new Button("Otwórz raport");
+
+        VBox box = new VBox(10, listView, openBtn);
+        box.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Raporty");
+        stage.setScene(new Scene(box, 500, 400));
+        stage.show();
+
+        openBtn.setOnAction(e -> {
+            String selected = listView.getSelectionModel().getSelectedItem();
+
+            if (selected == null || selected.equals("Brak raportów")) {
+                showPopup("Błąd", "Wybierz raport");
+                return;
+            }
+
+            showReportDetailsChief(selected, stage);
+        });
+    }
+
+    @FXML
+    protected void onMyReportsClicked() {
+
+        String res = send("GET_MY_REPORTS|" + currentUser);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        ListView<String> listView = new ListView<>();
+
+        if (data.isBlank()) {
+            listView.getItems().add("Brak raportów");
+        } else {
+            for (String r : data.split(";;")) {
+                if (!r.isBlank()) {
+                    listView.getItems().add(r);
+                }
+            }
+        }
+
+        listView.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) {
+                String selected = listView.getSelectionModel().getSelectedItem();
+
+                if (selected != null && !selected.equals("Brak raportów")) {
+                    Stage stage = new Stage();
+                    showReportDetails(selected, stage);
+                }
+            }
+        });
+
+        Stage stage = new Stage();
+        VBox root = new VBox(10, listView);
+        root.setPadding(new Insets(10));
+
+        stage.setTitle("Moje raporty");
+        stage.setScene(new Scene(root, 800, 400));
+        stage.show();
+    }
+
+    private void showReportDetails(String report, Stage parentStage){
+
+        Label reportLabel = new Label(report);
+        reportLabel.setWrapText(true);
+
+        Button fixBtn = new Button("Popraw raport");
+        Button closeBtn = new Button("Zamknij");
+
+        VBox box = new VBox(10, reportLabel, fixBtn, closeBtn);
+        box.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Szczegóły raportu");
+        stage.setScene(new Scene(box, 500, 300));
+        stage.show();
+
+        boolean canFix = currentRole.equals("man")
+                && report.toUpperCase().contains("REVISION");
+
+        fixBtn.setDisable(!canFix);
+
+        fixBtn.setOnAction(e -> {
+
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("Popraw raport");
+            dialog.setHeaderText("Wpisz poprawki");
+
+            dialog.showAndWait().ifPresent(text -> {
+
+                if (text.isBlank()) return;
+
+                String id = extractReportId(report);
+
+                String res = send(
+                        "FIX_REPORT|" +
+                                currentUser + "|" +
+                                id + "|" +
+                                text.replace("|", "_")
+                );
+
+                showPopup("Raport", res);
+
+                stage.close();
+            });
+        });
+
+        closeBtn.setOnAction(e -> stage.close());
+    }
+
+    private void showReportDetailsChief(String report, Stage parent) {
+
+        Label label = new Label(report);
+        label.setWrapText(true);
+
+        Button approve = new Button("Zatwierdź");
+        Button reject = new Button("Do poprawy");
+        Button close = new Button("Zamknij");
+
+        VBox box = new VBox(10, label, approve, reject, close);
+        box.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Raport");
+        stage.setScene(new Scene(box, 500, 300));
+        stage.show();
+
+        approve.setOnAction(e -> {
+            String id = extractReportId(report);
+            showPopup("Raport", send("APPROVE_REPORT|" + currentUser + "|" + id));
+            stage.close();
+        });
+
+        reject.setOnAction(e -> {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("Odrzuć raport");
+            dialog.setHeaderText("Podaj powód");
+
+            dialog.showAndWait().ifPresent(reason -> {
+                if (reason.isBlank()) return;
+
+                String id = extractReportId(report);
+
+                showPopup(
+                        "Raport",
+                        send("REJECT_REPORT|" + currentUser + "|" + id + "|" + reason)
+                );
+
+                stage.close();
+            });
+        });
+
+        close.setOnAction(e -> stage.close());
+    }
+
+    private String extractReportId(String report) {
+        try {
+            String[] parts = report.split("\\|");
+            return parts[0].trim(); // OK
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void forceMapResize(WebEngine engine) {
+
+        Platform.runLater(() -> {
+
+            try {
+
+                engine.executeScript("""
+                
+                if(window.map){
+
+                    setTimeout(() => {
+
+                        map.invalidateSize(true);
+
+                    }, 300);
+                }
+                
+            """);
+
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private void showIncidentDetails(String incident, Stage parentStage) {
+
+        Label incidentLabel = new Label(incident);
+        incidentLabel.setWrapText(true);
+
+        Button assignBtn = new Button("🚓 Przypisz patrol");
+        Button closeBtn = new Button("Zamknij");
+
+        VBox box = new VBox(10, incidentLabel, assignBtn, closeBtn);
+        box.setPadding(new Insets(10));
+
+        Stage stage = new Stage();
+        stage.setTitle("Szczegóły zdarzenia");
+
+        stage.setScene(new Scene(box, 500, 300));
+        stage.show();
+
+        assignBtn.setOnAction(e -> {
+
+            stage.close();
+
+            showPatrolSelectionWindow(incident);
+        });
+
+        closeBtn.setOnAction(e -> stage.close());
+    }
+
+    private void showPatrolSelectionWindow(String incidentData) {
+
+        String response = send("GET_PATROLS|" + currentUser);
+
+        if (!response.startsWith("SUCCESS:")) {
+            showPopup("Błąd", response);
+            return;
+        }
+
+        String data = response.substring(8);
+
+        Stage stage = new Stage();
+        stage.setTitle("Wybierz patrol");
+
+        VBox root = new VBox(10);
+        root.setPadding(new Insets(10));
+
+        for (String patrol : data.split(";;")) {
+
+            Button patrolBtn = new Button(patrol);
+
+            patrolBtn.setMaxWidth(Double.MAX_VALUE);
+
+            patrolBtn.setOnAction(e -> {
+
+                try {
+
+                    String patrolId = patrol
+                            .split("\\|")[0]
+                            .replace("Patrol #", "")
+                            .trim();
+
+                    String incidentId = incidentData
+                            .split("\\|")[0]
+                            .replace("ID:", "")
+                            .trim();
+
+                    String res = send(
+                            "SEND_PATROL_INCIDENT|"
+                                    + currentUser + "|"
+                                    + patrolId + "|"
+                                    + incidentId
+                    );
+
+                    showPopup("Patrol", res);
+
+                    stage.close();
+
+                } catch (Exception ex) {
+
+                    ex.printStackTrace();
+
+                    showPopup(
+                            "Błąd",
+                            "Nie udało się wysłać patrolu"
+                    );
+                }
+            });
+
+            root.getChildren().add(patrolBtn);
+        }
+
+        ScrollPane scroll = new ScrollPane(root);
+
+        scroll.setFitToWidth(true);
+
+        stage.setScene(new Scene(scroll, 500, 400));
+
+        stage.show();
+    }
+
     private void showTicketDialog(String ticketData) {
 
         String id = ticketData.split(" \\| ")[0]
                 .replace("ID: ", "")
                 .trim();
 
-        String res = send("GET_TICKETS " + citizenIdField.getText());
+        String res = send("GET_TICKETS|" + citizenIdField.getText());
 
         if (!res.startsWith("SUCCESS:")) {
             showPopup("Błąd", res);
@@ -934,7 +1694,7 @@ public class Controller {
 
                     if (result == payBtn) {
 
-                        String payRes = send("PAY_TICKET " + p[0]);
+                        String payRes = send("PAY_TICKET|" + p[0]);
                         showPopup("Płatność", payRes);
 
                         onGetTicketsClicked();
@@ -973,12 +1733,12 @@ public class Controller {
 
             if (result == approveBtn) {
 
-                String res = send("APPROVE_USER " + currentUser + " " + username);
+                String res = send("APPROVE_USER|" + currentUser + "|" + username);
                 showPopup("Zatwierdzanie", res);
 
             } else if (result == deleteBtn) {
 
-                String res = send("DELETE_PENDING " + currentUser + " " + username);
+                String res = send("DELETE_PENDING|" + currentUser + "|" + username);
                 showPopup("Usuwanie", res);
             }
 
@@ -1014,10 +1774,10 @@ public class Controller {
 
             if (result == deleteBtn) {
 
-                String res = send("DELETE_USER " + currentUser + " " + username);
+                String res = send("DELETE_USER|" + currentUser + "|" + username);
                 showPopup("Usuwanie użytkownika", res);
 
-                onLoadAllUsers(); // refresh listy
+                onLoadAllUsers();
             }
         });
     }
@@ -1110,10 +1870,10 @@ public class Controller {
                 }
 
                 String res = send(
-                        "SEND_PATROL "
-                                + currentUser + " "
-                                + patrolData.replace(" ", "_") + " "
-                                + address.replace(" ", "_")
+                        "SEND_PATROL|"
+                                + currentUser + "|"
+                                + patrolData.replace("|", "_") + "|"
+                                + address.replace("|", "_")
                 );
 
                 showPopup("Patrol", res);
@@ -1127,12 +1887,6 @@ public class Controller {
                     showPopup("Błąd", "Podaj adres");
                     continue;
                 }
-
-                /*
-                 * - Google Maps API
-                 * - OpenStreetMap
-                 * - GPS patroli
-                 */
 
                 double distance = Math.random() * 20;
 
@@ -1162,8 +1916,8 @@ public class Controller {
                         patrolData.split(" ")[0];
 
                 String res = send(
-                        "DELETE_PATROL "
-                                + currentUser + " "
+                        "DELETE_PATROL|"
+                                + currentUser + "|"
                                 + patrolId
                 );
 
@@ -1180,4 +1934,142 @@ public class Controller {
         }
     }
 
+    private void updatePatrolStatus(Label label, String patrolId) {
+
+        String res = send("GET_PATROL_STATUS|" + patrolId);
+
+        if (!res.startsWith("SUCCESS:")) {
+
+            label.setText("📭 Brak aktywnej akcji");
+            label.setStyle("-fx-text-fill: gray;");
+
+            return;
+        }
+
+        String data = res.substring(8);
+
+        if (data.isBlank() || data.equals("Brak akcji")) {
+
+            label.setText("📭 Brak aktywnej akcji");
+            label.setStyle("-fx-text-fill: gray;");
+
+            return;
+        }
+
+        String[] parts = data.split("\\|");
+
+        String status =
+                parts.length > 0 ? parts[0] : "Akcja";
+
+        String address =
+                parts.length > 1 ? parts[1] : "Nieznany adres";
+
+        label.setText(
+                "🚨 " + status + "\n📍 " + address
+        );
+
+        label.setStyle(
+                "-fx-text-fill: green; -fx-font-weight: bold;"
+        );
+    }
+
+    private String extractAddress(String incident) {
+
+        String[] parts = incident.split(",");
+
+        if (parts.length >= 3) {
+            return parts[2];
+        }
+
+        return "Nieznany adres";
+    }
+
+    private void loadStats(String mode) {
+
+        String res = send("GET_STATS|" + currentUser + "|" + mode);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        ListView<String> list = new ListView<>();
+
+        if (data.isBlank() || data.equals("Brak danych")) {
+            list.getItems().add("Brak danych");
+        } else {
+
+            for (String stat : data.split(",")) {
+
+                String[] s = stat.split("=");
+
+                if (s.length < 2) continue;
+
+                list.getItems().add("🚨 " + s[0] + " → " + s[1]);
+            }
+        }
+
+        Stage stage = new Stage();
+        VBox root = new VBox(10, list);
+        root.setPadding(new Insets(10));
+
+        stage.setTitle("Statystyki mandatów");
+        stage.setScene(new Scene(root, 400, 300));
+        stage.show();
+    }
+
+    @FXML
+    protected void onDayStatsClicked() {
+        loadStats("DAY");
+    }
+
+    @FXML
+    protected void onWeekStatsClicked() {
+        loadStats("WEEK");
+    }
+
+    @FXML
+    protected void onMonthStatsClicked() {
+        loadStats("MONTH");
+    }
+
+
+    private void setupJavaBridge(WebEngine engine) {
+        try {
+            JSObject window = (JSObject) engine.executeScript("window");
+            String user = currentUser != null ? currentUser : "guest";
+            window.setMember("javaBridge", new MapBridge(user));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void forceMapResizeAggressive(WebEngine engine) {
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("""
+                if (window.map) {
+                    // Bardzo agresywne wymuszenie
+                    window.map.invalidateSize(true);
+                    window.map.invalidateSize(true);
+                    
+                    setTimeout(() => { 
+                        if (window.map) window.map.invalidateSize(true); 
+                    }, 50);
+                    
+                    setTimeout(() => { 
+                        if (window.map) window.map.invalidateSize(true); 
+                    }, 300);
+                    
+                    setTimeout(() => { 
+                        if (window.map) window.map.invalidateSize(true); 
+                    }, 800);
+                }
+            """);
+            } catch (Exception ignored) {}
+        });
+    }
 }
+

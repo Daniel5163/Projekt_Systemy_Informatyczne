@@ -5,7 +5,10 @@ import java.net.*;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
+
+import java.security.MessageDigest;
 
 import java.sql.*;
 
@@ -52,6 +55,21 @@ class AuthServer {
             e.printStackTrace();
         }
     }
+    private String hash(String password) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(password.getBytes());
+
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private void handle(Socket socket) {
         try (
@@ -60,8 +78,7 @@ class AuthServer {
         ) {
             String req = in.readLine();
             if (req == null) return;
-            String[] t = req.split(" ", 3);
-           // String[] t = req.split("\\|");
+            String[] t = req.split("\\|");
 
             switch (t[0]) {
 
@@ -83,7 +100,7 @@ class AuthServer {
 
                 case "GET_STATS" -> statisticsManager.get(t, out, userManager);
 
-                case "ADD_INCIDENT" -> patrolManager.add(t, out);
+                case "ADD_INCIDENT" -> patrolManager.addIncident(t, out, userManager);
                 case "GET_INCIDENTS" -> patrolManager.get(t, out, userManager);
                 case "ASSIGN_PATROL" -> patrolManager.assign(t, out, userManager);
 
@@ -118,6 +135,25 @@ class AuthServer {
 
                 case "GET_CLOSEST_PATROL" -> patrolManager.getClosestPatrol(t, out);
 
+                case "SEND_PATROL_INCIDENT" -> patrolManager.sendPatrolFromIncident(t, out, userManager);
+
+
+                case "GET_PATROLS_DISPATCHES" -> patrolManager.getPatrolsWithDispatches(t, out, userManager);
+
+                case "ADD_PATROL_LOCATION" -> patrolManager.addPatrolLocation(t, out, userManager);
+
+                case "GET_PENDING_REPORTS" -> reportManager.getPendingReports(t, out, userManager);
+                case "APPROVE_REPORT" -> reportManager.approveReport(t, out, userManager);
+
+                case "REJECT_REPORT" -> reportManager.rejectReport(t, out, userManager);
+
+                case "GET_MY_REPORTS" -> reportManager.getMyReports(t, out, userManager);
+
+                case "RESUBMIT_REPORT" -> reportManager.resubmitReport(t, out, userManager);
+
+                case "FIX_REPORT" -> reportManager.resubmitReport(t, out, userManager);
+
+
                 default -> out.println("ERROR");
 
             }
@@ -148,21 +184,41 @@ class UserManager {
 
             ResultSet rs = ps.executeQuery();
 
-            if (rs.next()) {
+            if (!rs.next()) {
+                out.println("ERROR:Brak użytkownika");
+                return;
+            }
 
-                String dbPass = rs.getString("password");
-                String dbRole = rs.getString("role");
+            String dbPass = rs.getString("password");
+            String dbRole = rs.getString("role");
 
-                if (dbPass.equals(t[2])) {
-                    logged.put(t[1], true);
-                    role.put(t[1], dbRole);
-                    out.println("SUCCESS:" + dbRole);
-                } else {
-                    out.println("ERROR:Login");
+            String inputPass = t[2];
+            String inputHash = hash(inputPass);
+
+            boolean ok = dbPass.equals(inputHash);
+
+            if (!ok) {
+                ok = dbPass.equals(inputPass);
+            }
+
+            if (ok) {
+
+                logged.put(t[1], true);
+                role.put(t[1], dbRole);
+
+                if (dbPass.equals(inputPass)) {
+
+                    String update = "UPDATE users SET password = ? WHERE username = ?";
+                    PreparedStatement ups = conn.prepareStatement(update);
+                    ups.setString(1, inputHash);
+                    ups.setString(2, t[1]);
+                    ups.executeUpdate();
                 }
 
+                out.println("SUCCESS:" + dbRole);
+
             } else {
-                out.println("ERROR:Brak użytkownika");
+                out.println("ERROR:Złe hasło");
             }
 
         } catch (Exception e) {
@@ -179,14 +235,14 @@ class UserManager {
     public void addUser(String[] t, PrintWriter out) {
 
         String newUser = t[2];
-        String password = t[3];
+        String password = hash(t[3]);
         String roleNew = t[4];
 
         String extra = t.length > 5 ? t[5] : null;
 
-        if ("citizen".equals(roleNew)) {
+        try (Connection conn = DataBase.connect()) {
 
-            try (Connection conn = DataBase.connect()) {
+            if ("citizen".equals(roleNew)) {
 
                 PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO users(username, password, role, police_id, pesel) VALUES (?, ?, ?, ?, ?)"
@@ -200,20 +256,18 @@ class UserManager {
 
                 ps.executeUpdate();
 
-                pass.put(newUser, password);
-                role.put(newUser, roleNew);
-                logged.put(newUser, false);
-
                 out.println("SUCCESS:Konto utworzone");
 
-            } catch (Exception e) {
-                e.printStackTrace();
-                out.println("ERROR:Baza");
+            } else {
+
+                pendingUsers.add(new String[]{newUser, password, roleNew, extra});
+
+                out.println("SUCCESS:Do zatwierdzenia");
             }
 
-        } else {
-            pendingUsers.add(new String[]{newUser, password, roleNew, extra});
-            out.println("SUCCESS:Do zatwierdzenia");
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
@@ -527,6 +581,26 @@ class UserManager {
         }
     }
 
+    private String hash(String password) {
+        try {
+            java.security.MessageDigest md =
+                    java.security.MessageDigest.getInstance("SHA-256");
+
+            byte[] hash = md.digest(password.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            StringBuilder sb = new StringBuilder();
+
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+
+            return sb.toString();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Błąd hashowania", e);
+        }
+    }
+
 }
 
 class DriverManager {
@@ -616,15 +690,18 @@ class DriverManager {
                 int driverId = getOrCreateDriver(conn, pesel, name, surname);
 
                 PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO tickets (driver_id, police_user, points, fine, reason, paid) " +
-                                "VALUES (?, ?, ?, ?, ?, false)"
+                        "INSERT INTO tickets " +
+                                "(driver_id, police_user, points, fine, reason, paid, issued_at) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, CURDATE())"
                 );
+
 
                 ps.setInt(1, driverId);
                 ps.setString(2, user);
                 ps.setInt(3, points);
                 ps.setInt(4, fine);
                 ps.setString(5, reason);
+                ps.setBoolean(6, false);
 
                 ps.executeUpdate();
 
@@ -772,35 +849,56 @@ class StatisticsManager {
             return;
         }
 
-        try {
-            Path p = Paths.get("tickets.txt");
+        String mode = t.length > 2 ? t[2] : "ALL";
 
-            if (!Files.exists(p)) {
+        String where = "";
+
+        switch (mode) {
+
+            case "DAY" ->
+                    where = "WHERE DATE(issued_at) = CURDATE()";
+
+            case "WEEK" ->
+                    where = "WHERE issued_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
+
+            case "MONTH" ->
+                    where = "WHERE issued_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+
+            default ->
+                    where = "";
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            String sql =
+                    "SELECT DATE(issued_at) AS day, reason, COUNT(*) AS total " +
+                            "FROM tickets " +
+                            where + " " +
+                            "GROUP BY DATE(issued_at), reason " +
+                            "ORDER BY day DESC";
+
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ResultSet rs = ps.executeQuery();
+
+            List<String> stats = new ArrayList<>();
+
+            while (rs.next()) {
+                stats.add(
+                        rs.getString("day") + " | " +
+                                rs.getString("reason") + " = " +
+                                rs.getInt("total")
+                );
+            }
+
+            if (stats.isEmpty()) {
                 out.println("SUCCESS:Brak danych");
-                return;
+            } else {
+                out.println("SUCCESS:" + String.join(",", stats));
             }
 
-            Map<String, Integer> stats = new HashMap<>();
-
-            for (String l : Files.readAllLines(p)) {
-                String[] s = l.split(",", 6);
-
-                if (s.length == 6) {
-                    String reason = s[5];
-                    stats.put(reason, stats.getOrDefault(reason, 0) + 1);
-                }
-            }
-
-            String result = stats.entrySet().stream()
-                    .sorted((a, b) -> b.getValue() - a.getValue())
-                    .map(e -> e.getKey() + "=" + e.getValue())
-                    .reduce((a, b) -> a + "," + b)
-                    .orElse("Brak danych");
-
-            out.println("SUCCESS:" + result);
-
-        } catch (IOException e) {
-            out.println("ERROR:Statystyki");
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 }
@@ -840,24 +938,43 @@ class PatrolManager {
             return;
         }
 
-        try {
-            Path p = Paths.get(FILE);
+        try (Connection conn = DataBase.connect()) {
 
-            if (!Files.exists(p)) {
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, user, address, reason, status FROM incidents ORDER BY id DESC"
+            );
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+
+                String id = rs.getString("id");
+                String uName = rs.getString("user");
+                String address = rs.getString("address");
+                String reason = rs.getString("reason");
+                String status = rs.getString("status");
+
+                String formatted =
+                        "ID: " + id +
+                                " | User: " + uName +
+                                " | Adres: " + address +
+                                " | Powód: " + reason +
+                                " | Status: " + status;
+
+                list.add(formatted);
+            }
+
+            if (list.isEmpty()) {
                 out.println("SUCCESS:Brak zgłoszeń");
-                return;
+            } else {
+                out.println("SUCCESS:" + String.join(";;", list));
             }
 
-            List<String> lines = Files.readAllLines(p);
-
-            for (int i = 0; i < lines.size(); i++) {
-                lines.set(i, i + ":" + lines.get(i));
-            }
-
-            out.println(String.join(";;", lines));
-
-        } catch (IOException e) {
-            out.println("ERROR");
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
         }
     }
 
@@ -983,6 +1100,13 @@ class PatrolManager {
 
                 String username = parts[0];
                 String policeId = parts.length > 1 ? parts[1] : null;
+
+                PreparedStatement deleteOld = conn.prepareStatement(
+                        "DELETE FROM patrol_members WHERE username = ?"
+                );
+
+                deleteOld.setString(1, username);
+                deleteOld.executeUpdate();
 
                 insertMember.setInt(1, patrolId);
                 insertMember.setString(2, username);
@@ -1163,7 +1287,7 @@ class PatrolManager {
 
     public void sendPatrol(String[] t, PrintWriter out, UserManager u) {
 
-        if (t.length < 3) {
+        if (t.length < 4) {
             out.println("ERROR:Za mało danych");
             return;
         }
@@ -1175,25 +1299,17 @@ class PatrolManager {
             return;
         }
 
-        String[] parts = t[2].split(" ", 2);
-
-        if (parts.length < 2) {
-            out.println("ERROR:Brak adresu");
-            return;
-        }
-
         int patrolId;
+        String address = t[3];
 
         try {
-            patrolId = Integer.parseInt(parts[0]);
+            patrolId = Integer.parseInt(t[2]);
         } catch (Exception e) {
-            out.println("ERROR:Złe ID");
+            out.println("ERROR:Złe ID patrolu");
             return;
         }
 
-        String address = parts[1];
-
-        if (address.isBlank()) {
+        if (address == null || address.isBlank()) {
             out.println("ERROR:Pusty adres");
             return;
         }
@@ -1201,7 +1317,9 @@ class PatrolManager {
         try (Connection conn = DataBase.connect()) {
 
             PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO patrol_dispatches(patrol_id, target_address, latitude, longitude) VALUES (?, ?, 0, 0)"
+                    "INSERT INTO patrol_dispatches " +
+                            "(patrol_id, incident_id, target_address, latitude, longitude) " +
+                            "VALUES (?, NULL, ?, 0, 0)"
             );
 
             ps.setInt(1, patrolId);
@@ -1209,7 +1327,7 @@ class PatrolManager {
 
             ps.executeUpdate();
 
-            out.println("SUCCESS:Patrol wysłany -> " + address);
+            out.println("SUCCESS:Patrol wysłany");
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -1306,78 +1424,675 @@ class PatrolManager {
 
         return R * c;
     }
-}
 
-class PlateManager {
-    private static final String FILE = "plates.txt";
-
-    public void checkPlate(String[] t, PrintWriter out, UserManager u) {
-        if (!u.logged(t[1])) {
-            out.println("ERROR:Nie zalogowany");
-            return;
-        }
-
-        try {
-            Path p = Paths.get(FILE);
-
-            if (!Files.exists(p)) {
-                Files.write(p, List.of(
-                        "ABC123,yes,kradziony",
-                        "XYZ999,no,"
-                ));
-            }
-
-            for (String l : Files.readAllLines(p)) {
-                String[] s = l.split(",", 3);
-
-                if (s[0].equalsIgnoreCase(t[2])) {
-                    if ("yes".equals(s[1])) {
-                        out.println("WARNING:Pojazd kradziony " + s[2]);
-                    } else {
-                        out.println("SUCCESS:Pojazd OK");
-                    }
-                    return;
-                }
-            }
-
-            out.println("SUCCESS:Brak w bazie");
-
-        } catch (IOException e) {
-            out.println("ERROR");
-        }
-    }
-}
-
-class ReportManager {
-    public void save(String[] t, PrintWriter out, UserManager u) {
-
-        if (!u.logged(t[1])) {
-            out.println("ERROR:Nie zalogowany");
-            return;
-        }
+    public void addIncident(String[] t, PrintWriter out, UserManager u) {
 
         if (t.length < 4) {
             out.println("ERROR:Za mało danych");
             return;
         }
 
+        String user = t[1];
+        String address = t[2];
+        String reason = t[3];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Nie zalogowany");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO incidents(user, address, reason, status) VALUES (?, ?, ?, ?)"
+            );
+
+            ps.setString(1, user);
+            ps.setString(2, address);
+            ps.setString(3, reason);
+            ps.setString(4, "UNASSIGNED");
+
+            ps.executeUpdate();
+
+            out.println("SUCCESS:Zgłoszenie zapisane");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+    public void sendPatrolFromIncident(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 4) {
+            out.println("ERROR:Za mało danych");
+            return;
+        }
+
+        String chief = t[1];
+
+        if (!u.logged(chief) || !u.isChief(chief)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        int patrolId;
+        int incidentId;
+
+        try {
+            patrolId = Integer.parseInt(t[2]);
+            incidentId = Integer.parseInt(t[3]);
+        } catch (Exception e) {
+            out.println("ERROR:Złe ID");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            conn.setAutoCommit(false);
+
+            PreparedStatement ps1 = conn.prepareStatement(
+                    "SELECT address FROM incidents WHERE id = ?"
+            );
+
+            ps1.setInt(1, incidentId);
+            ResultSet rs = ps1.executeQuery();
+
+            if (!rs.next()) {
+                conn.rollback();
+                out.println("ERROR:Nie znaleziono zgłoszenia");
+                return;
+            }
+
+            String address = rs.getString("address");
+
+            PreparedStatement ps2 = conn.prepareStatement(
+                    "INSERT INTO patrol_dispatches " +
+                            "(patrol_id, incident_id, target_address, latitude, longitude) " +
+                            "VALUES (?, ?, ?, 0, 0)"
+            );
+
+            ps2.setInt(1, patrolId);
+            ps2.setInt(2, incidentId);
+            ps2.setString(3, address);
+
+            ps2.executeUpdate();
+
+            PreparedStatement ps3 = conn.prepareStatement(
+                    "UPDATE incidents SET status = 'ASSIGNED' WHERE id = ?"
+            );
+
+            ps3.setInt(1, incidentId);
+            ps3.executeUpdate();
+
+            conn.commit();
+
+            out.println("SUCCESS:Patrol wysłany na zgłoszenie");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+
+    public void getIncidents(String[] t, PrintWriter out, UserManager u) {
+
+        String user = t[1];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, user, address, reason, status FROM incidents ORDER BY id DESC"
+            );
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+
+                list.add(
+                        "ID: " + rs.getInt("id") +
+                                " | User: " + rs.getString("user") +
+                                " | Adres: " + rs.getString("address") +
+                                " | Powód: " + rs.getString("reason") +
+                                " | Status: " + rs.getString("status")
+                );
+            }
+
+            out.println("SUCCESS:" + String.join(";;", list));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+
+    public void getPatrolsWithDispatches(String[] t, PrintWriter out, UserManager u) {
+
+        String user = t[1];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            String sql =
+                    "SELECT p.id AS patrol_id, p.created_by, p.created_at, " +
+                            "GROUP_CONCAT( " +
+                            "CONCAT(d.incident_id, '|', d.target_address, '|', d.created_at) " +
+                            "SEPARATOR '@@' " +
+                            ") AS dispatches " +
+                            "FROM patrols p " +
+                            "LEFT JOIN patrol_dispatches d ON p.id = d.patrol_id " +
+                            "GROUP BY p.id, p.created_by, p.created_at " +
+                            "ORDER BY p.id DESC";
+
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ResultSet rs = ps.executeQuery();
+
+            List<String> result = new ArrayList<>();
+
+            while (rs.next()) {
+
+                int patrolId = rs.getInt("patrol_id");
+                String createdBy = rs.getString("created_by");
+                String createdAt = rs.getString("created_at");
+                String dispatches = rs.getString("dispatches");
+
+                if (dispatches == null) dispatches = "";
+
+                result.add(
+                        patrolId + "|" +
+                                createdBy + "|" +
+                                createdAt + "|" +
+                                dispatches
+                );
+            }
+
+            out.println("SUCCESS:" + String.join(";;", result));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+
+    public void addPatrolLocation(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 3) {
+            out.println("ERROR:Za mało danych");
+            return;
+        }
+
+        String user = t[1];
+        String address = t[2];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Nie zalogowany");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement find = conn.prepareStatement(
+                    "SELECT patrol_id FROM patrol_members WHERE username = ? LIMIT 1"
+            );
+
+            find.setString(1, user);
+
+            ResultSet rs = find.executeQuery();
+
+            if (!rs.next()) {
+                out.println("ERROR:Nie jesteś przypisany do patrolu");
+                return;
+            }
+
+            int patrolId = rs.getInt("patrol_id");
+
+            PreparedStatement delete = conn.prepareStatement(
+                    "DELETE FROM patrol_locations WHERE patrol_id = ?"
+            );
+
+            delete.setInt(1, patrolId);
+            delete.executeUpdate();
+
+            PreparedStatement insert = conn.prepareStatement(
+                    "INSERT INTO patrol_locations(patrol_id, username, address, updated_at) VALUES (?, ?, ?, NOW())"
+            );
+
+            insert.setInt(1, patrolId);
+            insert.setString(2, user);
+            insert.setString(3, address);
+
+            insert.executeUpdate();
+
+            out.println("SUCCESS:Lokalizacja patrolu zaktualizowana");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+}
+
+class PlateManager {
+
+    public void checkPlate(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 3) {
+            out.println("ERROR:Za mało danych");
+            return;
+        }
+
+        String officer = t[1];
+        String plate = t[2];
+
+        if (!u.logged(officer) || !u.isPolice(officer)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM vehicles WHERE plate = ?"
+            );
+
+            ps.setString(1, plate);
+
+            ResultSet rs = ps.executeQuery();
+
+            if (!rs.next()) {
+                out.println("ERROR:Brak pojazdu");
+                return;
+            }
+
+            String brand = rs.getString("brand");
+            String model = rs.getString("model");
+            String color = rs.getString("color");
+
+            String vin = rs.getString("vin");
+
+            int year = rs.getInt("production_year");
+
+            String ownerName = rs.getString("owner_name");
+            String ownerSurname = rs.getString("owner_surname");
+            String ownerPesel = rs.getString("owner_pesel");
+
+            String registration = rs.getString("registration_number");
+
+            Date inspection = rs.getDate("inspection_valid_until");
+            Date insurance = rs.getDate("insurance_valid_until");
+
+            boolean stolen = rs.getBoolean("stolen");
+            boolean wanted = rs.getBoolean("wanted");
+
+            String stolenNote = rs.getString("stolen_note");
+            String notes = rs.getString("notes");
+
+            StringBuilder response = new StringBuilder();
+
+            response.append("POJAZD: ")
+                    .append(brand)
+                    .append(" ")
+                    .append(model);
+
+            response.append(" | Kolor: ")
+                    .append(color);
+
+            response.append(" | Rok: ")
+                    .append(year);
+
+            response.append(" | VIN: ")
+                    .append(vin);
+
+            response.append(" | Nr rej.: ")
+                    .append(registration);
+
+            response.append(" | Przegląd do: ")
+                    .append(inspection);
+
+            response.append(" | OC do: ")
+                    .append(insurance);
+
+            response.append(" | Właściciel: ")
+                    .append(ownerName)
+                    .append(" ")
+                    .append(ownerSurname);
+
+            response.append(" | PESEL: ")
+                    .append(ownerPesel);
+
+            if (stolen) {
+
+                response.append(" | UWAGA: KRADZIONY");
+
+                if (stolenNote != null && !stolenNote.isBlank()) {
+
+                    response.append(" (")
+                            .append(stolenNote)
+                            .append(")");
+                }
+            }
+
+            if (wanted) {
+                response.append(" | POSZUKIWANY");
+            }
+
+            if (notes != null && !notes.isBlank()) {
+
+                response.append(" | Notatki: ")
+                        .append(notes);
+            }
+
+            out.println("SUCCESS:" + response);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+}
+
+class ReportManager {
+
+    public void save(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 4) {
+            out.println("ERROR:Za mało danych (SAVE_REPORT)");
+            return;
+        }
+
+        String user = t[1];
+        String role = t[2];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Nie zalogowany");
+            return;
+        }
+
         String content = String.join(" ",
                 Arrays.copyOfRange(t, 3, t.length));
 
-        String report = LocalDateTime.now() +
-                " | " + t[1] +
-                " | " + content;
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO reports(username, role, content, status) VALUES (?, ?, ?, 'PENDING')"
+            );
+
+            ps.setString(1, user);
+            ps.setString(2, role);
+            ps.setString(3, content);
+
+            ps.executeUpdate();
+
+            out.println("SUCCESS:Raport wysłany");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza");
+        }
+    }
+
+    public void getPendingReports(String[] t, PrintWriter out, UserManager u) {
+
+        if (t == null || t.length < 2) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String user = t[1];
+
+        if (!u.logged(user) || !u.isChief(user)) {
+            out.println("ERROR:ACCESS_DENIED");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, username, role, content, created_at " +
+                            "FROM reports " +
+                            "WHERE status = 'PENDING' " +
+                            "ORDER BY id DESC"
+            );
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+
+                String row =
+                        rs.getInt("id") + "|" +
+                                rs.getTimestamp("created_at") + "|" +
+                                rs.getString("username") + "|" +
+                                rs.getString("role") + "|" +
+                                rs.getString("content");
+
+                list.add(row);
+            }
+
+            if (list.isEmpty()) {
+                out.println("SUCCESS:EMPTY");
+            } else {
+                out.println("SUCCESS:" + String.join(";;", list));
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:DB_ERROR");
+        }
+    }
+
+    public void approveReport(String[] t, PrintWriter out, UserManager u) {
+
+        if (t == null || t.length < 3) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String chief = t[1];
+
+        if (!u.logged(chief) || !u.isChief(chief)) {
+            out.println("ERROR:ACCESS_DENIED");
+            return;
+        }
+
+        int id;
 
         try {
-            Files.write(Paths.get("reports.txt"),
-                    (report + System.lineSeparator()).getBytes(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND);
+            id = Integer.parseInt(t[2]);
+        } catch (NumberFormatException e) {
+            out.println("ERROR:INVALID_ID");
+            return;
+        }
 
-            out.println("Raport zapisany");
+        try (Connection conn = DataBase.connect()) {
 
-        } catch (IOException e) {
-            out.println("ERROR:Zapis raportu");
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE reports SET status='APPROVED', updated_at=NOW() WHERE id=?"
+            );
+
+            ps.setInt(1, id);
+
+            int rows = ps.executeUpdate();
+
+            if (rows == 0) {
+                out.println("ERROR:NOT_FOUND");
+            } else {
+                out.println("SUCCESS:APPROVED");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:DB_ERROR");
+        }
+    }
+
+    public void rejectReport(String[] t, PrintWriter out, UserManager u) {
+
+        if (t == null || t.length < 3) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String chief = t[1];
+
+        if (!u.logged(chief) || !u.isChief(chief)) {
+            out.println("ERROR:ACCESS_DENIED");
+            return;
+        }
+
+        int id;
+
+        try {
+            id = Integer.parseInt(t[2]);
+        } catch (NumberFormatException e) {
+            out.println("ERROR:INVALID_ID");
+            return;
+        }
+
+        String comment = (t.length > 3)
+                ? String.join(" ", Arrays.copyOfRange(t, 3, t.length))
+                : "";
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE reports " +
+                            "SET status='REVISION', comment=?, updated_at=NOW() " +
+                            "WHERE id=?"
+            );
+
+            ps.setString(1, comment);
+            ps.setInt(2, id);
+
+            int rows = ps.executeUpdate();
+
+            if (rows == 0) {
+                out.println("ERROR:NOT_FOUND");
+            } else {
+                out.println("SUCCESS:REJECTED");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:DB_ERROR");
+        }
+    }
+
+    public void getMyReports(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 2) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String username = t[1];
+
+        if (!u.logged(username)) {
+            out.println("ERROR:NOT_LOGGED");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, content, status, comment, created_at, updated_at " +
+                            "FROM reports " +
+                            "WHERE username=? " +
+                            "ORDER BY id DESC"
+            );
+
+            ps.setString(1, username);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+
+                String row =
+                        rs.getInt("id") + "|" +
+                                rs.getString("status") + "|" +
+                                (rs.getString("comment") == null
+                                        ? "-"
+                                        : rs.getString("comment")) + "|" +
+                                rs.getTimestamp("created_at") + "|" +
+                                rs.getString("content");
+
+                list.add(row);
+            }
+
+            if (list.isEmpty()) {
+                out.println("SUCCESS:EMPTY");
+            } else {
+                out.println("SUCCESS:" + String.join(";;", list));
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:DB_ERROR");
+        }
+    }
+
+    public void resubmitReport(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 4) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String user = t[1];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:NOT_LOGGED");
+            return;
+        }
+
+        int reportId;
+
+        try {
+            reportId = Integer.parseInt(t[2]);
+        } catch (Exception e) {
+            out.println("ERROR:BAD_ID");
+            return;
+        }
+
+        String newContent = String.join(" ",
+                Arrays.copyOfRange(t, 3, t.length));
+
+        try (Connection conn = DataBase.connect()) {
+
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE reports " +
+                            "SET content=?, status='PENDING', comment=NULL, updated_at=NOW() " +
+                            "WHERE id=? AND username=? AND status='REVISION'"
+            );
+
+            ps.setString(1, newContent);
+            ps.setInt(2, reportId);
+            ps.setString(3, user);
+
+            int rows = ps.executeUpdate();
+
+            if (rows == 0) {
+                out.println("ERROR:NOT_ALLOWED");
+            } else {
+                out.println("SUCCESS:UPDATED");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:DB");
         }
     }
 }

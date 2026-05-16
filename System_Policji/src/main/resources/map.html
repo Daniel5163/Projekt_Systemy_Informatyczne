@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body, #map {
+            width: 100% !important;
+            height: 100% !important;
+            overflow: hidden;
+        }
+        #map {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    window.map = L.map('map', {
+        zoomControl: true,
+        attributionControl: true
+    }).setView([52.2297, 21.0122], 11);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+    }).addTo(window.map);
+
+    function resizeMap() {
+        if (window.map) {
+            window.map.invalidateSize(true);
+        }
+    }
+
+    setTimeout(resizeMap, 200);
+    setTimeout(resizeMap, 600);
+    setTimeout(resizeMap, 1200);
+    setTimeout(resizeMap, 2000);
+
+    window.addEventListener('resize', resizeMap);
+</script>
+</body>
+</html>
