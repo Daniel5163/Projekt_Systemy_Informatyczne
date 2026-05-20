@@ -4,6 +4,9 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.geometry.Insets?>
 
+<?import javafx.scene.web.WebView?>
+<?import javafx.scene.web.WebEngine?>
+
 <BorderPane xmlns="http://javafx.com/javafx"
             xmlns:fx="http://javafx.com/fxml"
             fx:controller="org.example.Controller"
@@ -55,10 +58,6 @@
                         </VBox>
                     </VBox>
 
-                    <Label fx:id="statusLabel"
-                           text="Brak akcji."
-                           style="-fx-font-weight: bold; -fx-text-fill: #333;"/>
-
                     <VBox fx:id="contentBox"
                           spacing="15"
                           alignment="TOP_CENTER"
@@ -73,6 +72,7 @@
                               spacing="8"
                               alignment="CENTER"
                               visible="false"/>
+
 
                         <VBox fx:id="policemanActionsBox"
                               spacing="8"
@@ -145,6 +145,8 @@
                                     onAction="#issuePenaltyTicket"
                                     style="-fx-max-width: 200;"/>
 
+
+
                         </VBox>
 
                         <VBox fx:id="reportBox"
@@ -168,14 +170,14 @@
                             <Button text="💾 Zapisz raport"
                                     onAction="#onSaveReportClicked"/>
 
-                            <Button text="💾 Wyświetl raport"
+                            <Button fx:id="viewReportsButton"
+                                    text="💾 Wyświetl raport"
                                     onAction="#onLoadReportsClicked"/>
+
 
                             <Button text="Moje raporty"
                                     onAction="#onMyReportsClicked"/>
 
-                            <Button text="💾 Dodaj lokalizację"
-                                    onAction="#onAddLokalizationClicked"/>
 
                         </VBox>
 
@@ -192,23 +194,18 @@
                             <Label text="Komunikacja"
                                    style="-fx-font-weight: bold;"/>
 
-                            <ComboBox fx:id="recipientComboBox"
-                                      prefWidth="250"/>
-
-                            <TextArea fx:id="messageTextArea"
-                                      wrapText="true"
-                                      prefHeight="100"
-                                      prefWidth="300"/>
-
                             <Button text="✉️ Wyślij wiadomość"
                                     onAction="#onSendMessageClicked"/>
 
-                            <Button text="🔄 Odśwież wiadomości"
-                                    onAction="#onRefreshMessagesClicked"/>
+                            <Label text="Wiadomości"
+                                   style="-fx-font-weight: bold;"/>
 
                             <ListView fx:id="messagesListView"
                                       prefHeight="150"
                                       prefWidth="320"/>
+
+                            <Button text="🔄 Odśwież wiadomości"
+                                    onAction="#onRefreshMessagesClicked"/>
 
                         </VBox>
 
@@ -231,6 +228,8 @@
                             <Button text="🚔 Moje mandaty"
                                     onAction="#onGetTicketsClicked"/>
 
+                            <Label>Mandaty</Label>
+
                             <ListView fx:id="ticketsListView"
                                       prefHeight="150"
                                       prefWidth="320"/>
@@ -248,6 +247,8 @@
                               alignment="CENTER"
                               visible="false">
 
+                            <Label text="Zgłoszenia"/>
+
                             <TextArea fx:id="problemReportTextArea"
                                       prefHeight="100"
                                       prefWidth="300"/>
@@ -256,11 +257,14 @@
                                     onAction="#onReportProblemClicked"/>
 
                             <VBox fx:id="pendingUsersBox"
-                                  visible="false"
                                   spacing="8">
+
+                                <Label>Oczekujące konta do zatwierdzenia</Label>
 
                                 <ListView fx:id="pendingUsersListView"
                                           prefHeight="120"/>
+
+                                <Label>Konta użytkowników</Label>
 
                                 <ListView fx:id="allUsersListView"
                                           prefHeight="120"/>
@@ -280,11 +284,22 @@
                                 <Button text="Statystyki"
                                         onAction="#onShowStatisticsClicked"/>
 
+                                <Button
+                                        text="Sprawdź lokalizacje patroli"
+                                        onAction="#onCheckPatrolLocationsClicked"
+                                        prefWidth="220"
+                                        style="-fx-font-size: 14px;" />
+
+
                             </VBox>
 
                         </VBox>
 
                     </VBox>
+
+                    <Button fx:id="patrolButton"
+                    text="Patrol"
+                    onAction="#onPatrolInfoClicked"/>
 
                     <Button fx:id="logoutButton"
                             text="Wyloguj się"
@@ -304,10 +319,14 @@
 
     <center>
 
-        <AnchorPane fx:id="mapContainer"
-                    minWidth="600"
-                    minHeight="600"
-                    style="-fx-background-color: #eeeeee;">
+        <AnchorPane fx:id="mapContainer">
+
+            <WebView fx:id="webView"
+                     AnchorPane.topAnchor="0"
+                     AnchorPane.bottomAnchor="0"
+                     AnchorPane.leftAnchor="0"
+                     AnchorPane.rightAnchor="0"/>
+
         </AnchorPane>
 
     </center>

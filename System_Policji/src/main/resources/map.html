@@ -2,49 +2,122 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <title>Mapa patroli</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body, #map {
-            width: 100% !important;
-            height: 100% !important;
-            overflow: hidden;
-        }
-        #map {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
         }
     </style>
 </head>
 <body>
 <div id="map"></div>
+
 <script>
-    window.map = L.map('map', {
-        zoomControl: true,
-        attributionControl: true
-    }).setView([52.2297, 21.0122], 11);
+    var map, vectorSource;
+    var currentUser = null;
+    var patrolPins = {};
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap'
-    }).addTo(window.map);
+  window.updatePatrolPin = function(lon, lat, username) {
+    console.log(`updatePatrolPin: ${username} → lat=${lat}, lon=${lon}`);
 
-    function resizeMap() {
-        if (window.map) {
-            window.map.invalidateSize(true);
-        }
+    if (!vectorSource) {
+        console.warn("vectorSource nie jest gotowy!");
+        return;
     }
 
-    setTimeout(resizeMap, 200);
-    setTimeout(resizeMap, 600);
-    setTimeout(resizeMap, 1200);
-    setTimeout(resizeMap, 2000);
+    if (patrolPins[username]) {
+        vectorSource.removeFeature(patrolPins[username]);
+    }
 
-    window.addEventListener('resize', resizeMap);
+    const feature = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
+    });
+
+    if (username === currentUser) {
+        feature.setStyle(new ol.style.Style({
+            image: new ol.style.Icon({
+                src: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+                scale: 0.09,
+                anchor: [0.5, 1]
+            })
+        }));
+    }
+
+    vectorSource.addFeature(feature);
+    patrolPins[username] = feature;
+
+    if (map) map.render();
+    console.log(" Pinezka zaktualizowana dla " + username);
+};
+
+
+    window.clearAllPins = function() {
+        console.log(" clearAllPins");
+        if (vectorSource) {
+            vectorSource.clear();
+            patrolPins = {};
+        }
+    };
+
+    window.loginPolice = function(username) {
+        currentUser = username;
+        console.log(" Zalogowano policjanta: " + username);
+    };
+
+    window.logoutPolice = function() {
+        console.log(" Wylogowano");
+        currentUser = null;
+        clearAllPins();
+    };
+
+    function initMap() {
+        map = new ol.Map({
+            target: 'map',
+            layers: [new ol.layer.Tile({ source: new ol.source.OSM() })],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([21.0122, 52.2297]),
+                zoom: 10
+            })
+        });
+
+        vectorSource = new ol.source.Vector();
+        map.addLayer(new ol.layer.Vector({
+            source: vectorSource
+        }));
+
+        map.on('singleclick', function(evt) {
+            console.log(" Kliknięto na mapie!");
+
+            if (!currentUser) {
+                console.log(" Brak currentUser - nie jesteś zalogowany jako policjant");
+                alert("Musisz być zalogowany jako policjant!");
+                return;
+            }
+
+            const coords = ol.proj.toLonLat(evt.coordinate);
+            const lon = coords[0];
+            const lat = coords[1];
+
+            console.log(` Kliknięto współrzędne: ${lat}, ${lon} | User: ${currentUser}`);
+
+            if (window.javaBridge) {
+                console.log(" javaBridge znaleziony - wywołuję sendLocation...");
+                window.javaBridge.sendLocation(lat, lon);
+            } else {
+                console.error(" javaBridge NIE ISTNIEJE! Most Java-JS nie działa.");
+                alert("Błąd: javaBridge nie jest dostępny!");
+            }
+        });
+
+        console.log(" Mapa OpenLayers zainicjalizowana pomyślnie");
+    }
+
+    window.onload = initMap;
 </script>
 </body>
 </html>

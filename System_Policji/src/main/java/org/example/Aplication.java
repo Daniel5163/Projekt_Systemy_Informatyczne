@@ -14,14 +14,22 @@ public class Aplication extends Application {
                 Aplication.class.getResource("/hello-view.fxml")
         );
 
-        Scene scene = new Scene(fxmlLoader.load(), 320, 540);
+        Scene scene = new Scene(fxmlLoader.load());
 
-        stage.setTitle("Hello!");
+        stage.setTitle("System Policji");
+
+        stage.setWidth(1400);
+        stage.setHeight(700);
+
         stage.setScene(scene);
+
         stage.show();
     }
 
     public static void main(String[] args) {
-        launch();
+
+        System.setProperty("prism.order", "sw");
+
+        launch(args);
     }
 }

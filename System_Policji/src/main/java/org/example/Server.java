@@ -15,6 +15,8 @@ import java.sql.*;
 public class Server {
     public static void main(String[] args) {
 
+        System.setProperty("prism.order", "sw");
+
         try {
             var conn = DataBase.connect();
             System.out.println("POŁĄCZONO Z MYSQL!");
@@ -40,9 +42,7 @@ class AuthServer {
     private final PatrolManager patrolManager = new PatrolManager();
     private final CitizenManager citizenManager = new CitizenManager();
 
-
     public void start() {
-
 
         try (ServerSocket server = new ServerSocket(PORT)) {
             System.out.println("Server działa na porcie " + PORT);
@@ -55,6 +55,7 @@ class AuthServer {
             e.printStackTrace();
         }
     }
+
     private String hash(String password) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -86,7 +87,6 @@ class AuthServer {
                 case "LOGOUT" -> userManager.logout(t, out);
 
                 case "ADD_USER" -> userManager.addUser(t, out);
-                case "REMOVE_USER" -> userManager.removeUser(t, out);
 
                 case "CHECK_DRIVER" -> driverManager.checkDriver(t, out, userManager);
                 case "CHECK_PLATE" -> plateManager.checkPlate(t, out, userManager);
@@ -103,7 +103,6 @@ class AuthServer {
                 case "ADD_INCIDENT" -> patrolManager.addIncident(t, out, userManager);
                 case "GET_INCIDENTS" -> patrolManager.get(t, out, userManager);
                 case "ASSIGN_PATROL" -> patrolManager.assign(t, out, userManager);
-
 
                 case "GET_POINTS" -> citizenManager.getPoints(t, out, driverManager);
                 case "GET_TICKETS" -> citizenManager.getTickets(t, out);
@@ -131,12 +130,9 @@ class AuthServer {
 
                 case "SEND_PATROL" -> patrolManager.sendPatrol(t, out, userManager);
 
-                case "UPDATE_LOCATION" -> patrolManager.updateLocation(t, out);
-
                 case "GET_CLOSEST_PATROL" -> patrolManager.getClosestPatrol(t, out);
 
                 case "SEND_PATROL_INCIDENT" -> patrolManager.sendPatrolFromIncident(t, out, userManager);
-
 
                 case "GET_PATROLS_DISPATCHES" -> patrolManager.getPatrolsWithDispatches(t, out, userManager);
 
@@ -153,6 +149,11 @@ class AuthServer {
 
                 case "FIX_REPORT" -> reportManager.resubmitReport(t, out, userManager);
 
+                case "GET_MY_PATROL"->patrolManager.getMyPatrol(t, out, userManager);
+
+                case "GET_PATROL_LOCATIONS" -> patrolManager.getPatrolLocations(t, out, userManager);
+
+                case "GET_CONVERSATION" -> messageManager.getConversation(t, out);
 
                 default -> out.println("ERROR");
 
@@ -171,8 +172,6 @@ class UserManager {
     private final Map<String, Boolean> logged = new ConcurrentHashMap<>();
 
     private final List<String[]> pendingUsers = new ArrayList<>();
-
-
 
     public void login(String[] t, PrintWriter out) {
 
@@ -326,37 +325,6 @@ class UserManager {
         }
 
         out.println("ERROR:Nie znaleziono");
-    }
-
-    public void removeUser(String[] t, PrintWriter out) {
-
-        if (!logged(t[1]) || !isChief(t[1])) {
-            out.println("ERROR:Tylko komendant");
-            return;
-        }
-
-        pass.remove(t[2]);
-        role.remove(t[2]);
-        logged.remove(t[2]);
-
-        save();
-
-        out.println("SUCCESS:Usunięto");
-    }
-
-    private void save() {
-        try {
-            List<String> l = new ArrayList<>();
-
-            for (String u : pass.keySet()) {
-                l.add(u + "," + pass.get(u) + "," + role.get(u));
-            }
-
-            Files.write(Paths.get("accounts.txt"), l);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
 
     public boolean logged(String u) {
@@ -600,7 +568,6 @@ class UserManager {
             throw new RuntimeException("Błąd hashowania", e);
         }
     }
-
 }
 
 class DriverManager {
@@ -821,20 +788,150 @@ class Ticket {
 }
 
 class MessageManager {
-    private final Map<String, List<String>> msgs = new HashMap<>();
 
     public void send(String[] t, PrintWriter out, UserManager u) {
-        msgs.computeIfAbsent(t[2], k -> new ArrayList<>())
-                .add(t[1] + ":" + t[3]);
-        out.println("OK");
+        if (t.length < 4) {
+            out.println("ERROR:Za mało danych");
+            return;
+        }
+
+        String sender = t[1];
+        String receiver = t[2];
+        String message = String.join(" ", Arrays.copyOfRange(t, 3, t.length));
+
+        if (!u.logged(sender)) {
+            out.println("ERROR:Nie jesteś zalogowany");
+            return;
+        }
+
+        if (sender.equals(receiver)) {
+            out.println("ERROR:Nie możesz wysłać wiadomości do siebie");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+            String sql = "INSERT INTO messages(sender, receiver, message, sent_at) VALUES(?,?,?,NOW())";
+
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, sender);
+            ps.setString(2, receiver);
+            ps.setString(3, message);
+
+            ps.executeUpdate();
+
+            out.println("SUCCESS:Wiadomość wysłana");
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy danych");
+        }
     }
 
     public void get(String[] t, PrintWriter out) {
-        out.println("SUCCESS:" + String.join(",", msgs.getOrDefault(t[1], List.of())));
+        if (t.length < 2) {
+            out.println("ERROR:Brak użytkownika");
+            return;
+        }
+
+        String user = t[1];
+
+        try (Connection conn = DataBase.connect()) {
+            String sql = """
+                SELECT sender, message, sent_at 
+                FROM messages 
+                WHERE receiver = ? 
+                ORDER BY sent_at DESC
+                """;
+
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, user);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> messages = new ArrayList<>();
+
+            while (rs.next()) {
+                messages.add(
+                        rs.getString("sender") + "|" +
+                                rs.getTimestamp("sent_at") + "|" +
+                                rs.getString("message")
+                );
+            }
+
+            out.println("SUCCESS:" + String.join(";;", messages));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
+        }
+    }
+
+    public void getConversation(String[] t, PrintWriter out) {
+        if (t.length < 3) {
+            out.println("ERROR:Za mało danych");
+            return;
+        }
+
+        String user1 = t[1];
+        String user2 = t[2];
+
+        try (Connection conn = DataBase.connect()) {
+            String sql = """
+                SELECT sender, message, sent_at 
+                FROM messages 
+                WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
+                ORDER BY sent_at ASC
+                """;
+
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setString(1, user1);
+            ps.setString(2, user2);
+            ps.setString(3, user2);
+            ps.setString(4, user1);
+
+            ResultSet rs = ps.executeQuery();
+
+            List<String> messages = new ArrayList<>();
+
+            while (rs.next()) {
+                messages.add(
+                        rs.getString("sender") + "|" +
+                                rs.getTimestamp("sent_at") + "|" +
+                                rs.getString("message")
+                );
+            }
+
+            out.println("SUCCESS:" + String.join(";;", messages));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
+        }
     }
 
     public void users(String[] t, PrintWriter out, UserManager u) {
-        out.println("SUCCESS:" + String.join(",", u.users()));
+        try (Connection conn = DataBase.connect()) {
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT username, role FROM users ORDER BY username"
+            );
+
+            ResultSet rs = ps.executeQuery();
+            List<String> users = new ArrayList<>();
+
+            while (rs.next()) {
+                String username = rs.getString("username");
+                String role = rs.getString("role");
+                users.add(username + "|" + role);
+            }
+
+            if (users.isEmpty()) {
+                out.println("SUCCESS:");
+            } else {
+                out.println("SUCCESS:" + String.join(";;", users));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
+        }
     }
 }
 
@@ -1050,7 +1147,7 @@ class PatrolManager {
 
     public void createPatrol(String[] t, PrintWriter out, UserManager u) {
 
-        System.out.println("CREATE_PATROL: " + Arrays.toString(t)); // debug
+        System.out.println("CREATE_PATROL: " + Arrays.toString(t));
 
         if (t.length < 3) {
             out.println("ERROR:Za mało danych");
@@ -1064,18 +1161,20 @@ class PatrolManager {
             return;
         }
 
-        String membersRaw = String.join(" ", Arrays.copyOfRange(t, 2, t.length));
+        String membersRaw = String.join(",", Arrays.copyOfRange(t, 2, t.length));
 
         try (Connection conn = DataBase.connect()) {
 
             conn.setAutoCommit(false);
 
             PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO patrols(created_by) VALUES (?)",
+                    "INSERT INTO patrols(created_by, members) VALUES (?, ?)",
                     Statement.RETURN_GENERATED_KEYS
             );
 
             ps.setString(1, chief);
+            ps.setString(2, membersRaw);
+
             ps.executeUpdate();
 
             ResultSet keys = ps.getGeneratedKeys();
@@ -1090,6 +1189,10 @@ class PatrolManager {
 
             String[] members = membersRaw.split(",");
 
+            PreparedStatement deleteOld = conn.prepareStatement(
+                    "DELETE FROM patrol_members WHERE username = ?"
+            );
+
             PreparedStatement insertMember = conn.prepareStatement(
                     "INSERT INTO patrol_members(patrol_id, username, police_id) VALUES (?, ?, ?)"
             );
@@ -1100,10 +1203,6 @@ class PatrolManager {
 
                 String username = parts[0];
                 String policeId = parts.length > 1 ? parts[1] : null;
-
-                PreparedStatement deleteOld = conn.prepareStatement(
-                        "DELETE FROM patrol_members WHERE username = ?"
-                );
 
                 deleteOld.setString(1, username);
                 deleteOld.executeUpdate();
@@ -1247,44 +1346,6 @@ class PatrolManager {
         }
     }
 
-    public void updateLocation(String[] t, PrintWriter out) {
-
-        if (t.length < 4) {
-            out.println("ERROR:Za mało danych");
-            return;
-        }
-
-        String username = t[1];
-        double lat = Double.parseDouble(t[2]);
-        double lon = Double.parseDouble(t[3]);
-
-        try (Connection conn = DataBase.connect()) {
-
-            PreparedStatement delete = conn.prepareStatement(
-                    "DELETE FROM patrol_locations WHERE username = ?"
-            );
-
-            delete.setString(1, username);
-            delete.executeUpdate();
-
-            PreparedStatement insert = conn.prepareStatement(
-                    "INSERT INTO patrol_locations(username, latitude, longitude) VALUES (?, ?, ?)"
-            );
-
-            insert.setString(1, username);
-            insert.setDouble(2, lat);
-            insert.setDouble(3, lon);
-
-            insert.executeUpdate();
-
-            out.println("SUCCESS:Lokalizacja zaktualizowana");
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            out.println("ERROR:Baza");
-        }
-    }
-
     public void sendPatrol(String[] t, PrintWriter out, UserManager u) {
 
         if (t.length < 4) {
@@ -1366,22 +1427,10 @@ class PatrolManager {
                 double lat = rs.getDouble("latitude");
                 double lon = rs.getDouble("longitude");
 
-                double distance = calculateDistance(
-                        targetLat,
-                        targetLon,
-                        lat,
-                        lon
-                );
-
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    bestPatrol = patrolId;
-                    bestOfficer = rs.getString("username");
-                }
             }
 
             if (bestPatrol == -1) {
-                out.println("ERROR:Brak patroli online");
+                out.println("ERROR:Brak patroli");
                 return;
             }
 
@@ -1399,30 +1448,6 @@ class PatrolManager {
             e.printStackTrace();
             out.println("ERROR:Baza");
         }
-    }
-
-    private double calculateDistance(
-            double lat1,
-            double lon1,
-            double lat2,
-            double lon2
-    ) {
-
-        double R = 6371;
-
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-
-        double a =
-                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                        Math.cos(Math.toRadians(lat1)) *
-                                Math.cos(Math.toRadians(lat2)) *
-                                Math.sin(dLon / 2) *
-                                Math.sin(dLon / 2);
-
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return R * c;
     }
 
     public void addIncident(String[] t, PrintWriter out, UserManager u) {
@@ -1461,6 +1486,7 @@ class PatrolManager {
             out.println("ERROR:Baza");
         }
     }
+
     public void sendPatrolFromIncident(String[] t, PrintWriter out, UserManager u) {
 
         if (t.length < 4) {
@@ -1625,56 +1651,141 @@ class PatrolManager {
     }
 
     public void addPatrolLocation(String[] t, PrintWriter out, UserManager u) {
-
-        if (t.length < 3) {
+        if (t.length < 4) {
             out.println("ERROR:Za mało danych");
             return;
         }
 
         String user = t[1];
-        String address = t[2];
+        double lat, lon;
 
-        if (!u.logged(user)) {
-            out.println("ERROR:Nie zalogowany");
+        try {
+            lat = Double.parseDouble(t[2]);
+            lon = Double.parseDouble(t[3]);
+        } catch (Exception e) {
+            out.println("ERROR:Złe współrzędne");
+            return;
+        }
+
+        if (!u.logged(user) || !u.isPolice(user)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+            conn.setAutoCommit(false);
+
+            PreparedStatement findPatrol = conn.prepareStatement(
+                    "SELECT patrol_id FROM patrol_members WHERE username = ? LIMIT 1"
+            );
+            findPatrol.setString(1, user);
+            ResultSet rs = findPatrol.executeQuery();
+
+            int patrolId;
+            if (rs.next()) {
+                patrolId = rs.getInt("patrol_id");
+            } else {
+                out.println("ERROR:Brak przypisanego patrolu");
+                return;
+            }
+
+            PreparedStatement delete = conn.prepareStatement(
+                    "DELETE FROM patrol_locations WHERE patrol_id = ?"
+            );
+            delete.setInt(1, patrolId);
+            delete.executeUpdate();
+
+            PreparedStatement insert = conn.prepareStatement(
+                    "INSERT INTO patrol_locations(patrol_id, username, latitude, longitude, updated_at) " +
+                            "VALUES (?, ?, ?, ?, NOW())"
+            );
+            insert.setInt(1, patrolId);
+            insert.setString(2, user);
+            insert.setDouble(3, lat);
+            insert.setDouble(4, lon);
+            insert.executeUpdate();
+
+            conn.commit();
+            out.println("SUCCESS:Lokalizacja zapisana");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Baza: " + e.getMessage());
+        }
+    }
+
+    public void getMyPatrol(String[] t, PrintWriter out, UserManager u) {
+
+        if (t.length < 2) {
+            out.println("ERROR:BAD_REQUEST");
+            return;
+        }
+
+        String username = t[1];
+
+        if (!u.logged(username) || !u.isPolice(username)) {
+            out.println("ERROR:BRAK_DOSTEPU");
             return;
         }
 
         try (Connection conn = DataBase.connect()) {
 
-            PreparedStatement find = conn.prepareStatement(
-                    "SELECT patrol_id FROM patrol_members WHERE username = ? LIMIT 1"
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT * FROM patrols WHERE members LIKE ?"
             );
 
-            find.setString(1, user);
+            ps.setString(1, "%" + username + "%");
 
-            ResultSet rs = find.executeQuery();
+            ResultSet rs = ps.executeQuery();
 
-            if (!rs.next()) {
-                out.println("ERROR:Nie jesteś przypisany do patrolu");
-                return;
+            List<String> list = new ArrayList<>();
+
+            while (rs.next()) {
+
+                String row =
+                        "Patrol #" + rs.getInt("id") +
+                                " | Dowódca: " + rs.getString("created_by") +
+                                " | Funkcjonariusze: " + rs.getString("members");
+
+                list.add(row);
             }
 
-            int patrolId = rs.getInt("patrol_id");
+            if (list.isEmpty()) {
+                out.println("SUCCESS:BRAK_PATROLU");
+            } else {
+                out.println("SUCCESS:" + String.join(";;", list));
+            }
 
-            PreparedStatement delete = conn.prepareStatement(
-                    "DELETE FROM patrol_locations WHERE patrol_id = ?"
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            out.println("ERROR:DB_ERROR");
+        }
+    }
+
+    public void getPatrolLocations(String[] t, PrintWriter out, UserManager u) {
+        String user = t[1];
+
+        if (!u.logged(user)) {
+            out.println("ERROR:Brak dostępu");
+            return;
+        }
+
+        try (Connection conn = DataBase.connect()) {
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT patrol_id, username, latitude, longitude FROM patrol_locations"
             );
+            ResultSet rs = ps.executeQuery();
 
-            delete.setInt(1, patrolId);
-            delete.executeUpdate();
-
-            PreparedStatement insert = conn.prepareStatement(
-                    "INSERT INTO patrol_locations(patrol_id, username, address, updated_at) VALUES (?, ?, ?, NOW())"
-            );
-
-            insert.setInt(1, patrolId);
-            insert.setString(2, user);
-            insert.setString(3, address);
-
-            insert.executeUpdate();
-
-            out.println("SUCCESS:Lokalizacja patrolu zaktualizowana");
-
+            List<String> list = new ArrayList<>();
+            while (rs.next()) {
+                list.add(rs.getInt("patrol_id") + "|" +
+                        rs.getString("username") + "|" +
+                        rs.getDouble("latitude") + "|" +
+                        rs.getDouble("longitude"));
+            }
+            out.println("SUCCESS:" + String.join(";;", list));
         } catch (Exception e) {
             e.printStackTrace();
             out.println("ERROR:Baza");

@@ -48,6 +48,7 @@ import javafx.application.Platform;
 import javafx.animation.PauseTransition;
 import javafx.util.Duration;
 
+import javafx.stage.Window;
 
 public class Controller {
 
@@ -58,6 +59,8 @@ public class Controller {
 
     @FXML private VBox contentBox;
     @FXML private Button logoutButton;
+    @FXML private Button patrolButton;
+    @FXML private Button changepasswordButton;
 
     @FXML private VBox managementBox;
     @FXML private VBox policemanActionsBox;
@@ -112,10 +115,17 @@ public class Controller {
     @FXML
     private AnchorPane mapContainer;
 
+    @FXML private Button viewReportsButton;
 
+    @FXML
+    private WebView webView;
+
+    private WebEngine webEngine;
 
     private String currentUser;
     private String currentRole;
+
+    private boolean mapReady = false;
 
     private void showPopup(String title, String message) {
 
@@ -142,14 +152,29 @@ public class Controller {
         String res = send("LOGIN|" + user + "|" + pass);
 
         if (res.startsWith("SUCCESS:")) {
-            currentRole = res.split(":")[1];
+            String role = res.split(":")[1];
+
             currentUser = user;
+            currentRole = role;
 
             loginPane.setVisible(false);
             contentBox.setVisible(true);
 
+            setupUIForRole(role);
 
-            setupUIForRole(currentRole);
+            if (webEngine != null) {
+                webEngine.executeScript("logoutPolice();"); // wyczyść stary stan
+                webEngine.executeScript("clearAllPins();"); // wyczyść pinezki
+            }
+
+            if (webEngine != null) {
+                setupMapBridge(currentUser);
+            }
+
+            if ("man".equals(role) || "chief".equals(role)) {
+                webEngine.executeScript("loginPolice('" + currentUser + "');");
+            }
+
 
         } else {
             showPopup("Błąd logowania", res);
@@ -160,11 +185,24 @@ public class Controller {
     protected void onLogoutClicked() {
         send("LOGOUT|" + currentUser);
 
+        if (webEngine != null) {
+            webEngine.executeScript("logoutPolice();");
+            webEngine.executeScript("clearAllPins();");
+        }
+
         currentUser = null;
         currentRole = null;
 
         loginPane.setVisible(true);
         contentBox.setVisible(false);
+
+        if (logoutButton != null) logoutButton.setVisible(false);
+        if (patrolButton != null) patrolButton.setVisible(false);
+        if (changepasswordButton != null) changepasswordButton.setVisible(false);
+
+        if (webEngine != null) {
+            webEngine.executeScript("logoutPolice();");
+        }
 
         showPopup("Wylogowano", "Pomyślnie wylogowano");
     }
@@ -175,32 +213,68 @@ public class Controller {
         policemanActionsBox.setVisible(false);
         reportBox.setVisible(false);
         citizenBox.setVisible(false);
+        messagingBox.setVisible(false);
+        pendingUsersBox.setVisible(false);
+        problemReportBox.setVisible(false);
 
-        messagingBox.setVisible(true);
-        problemReportBox.setVisible(true);
+        if (logoutButton != null) {
+            logoutButton.setVisible(true);
+        }
+
+        if (changepasswordButton != null) {
+            changepasswordButton.setVisible(true);
+        }
+
+        if (patrolButton != null) {
+            patrolButton.setVisible("man".equals(role) || "chief".equals(role));
+        }
 
         if ("chief".equals(role)) {
             managementBox.setVisible(true);
             policemanActionsBox.setVisible(true);
             reportBox.setVisible(true);
+            messagingBox.setVisible(true);
+            problemReportBox.setVisible(true);
+            pendingUsersBox.setVisible(true);
+
+            if (viewReportsButton != null) viewReportsButton.setVisible(true);
         }
 
         if ("man".equals(role)) {
             policemanActionsBox.setVisible(true);
             reportBox.setVisible(true);
+            messagingBox.setVisible(true);
+            problemReportBox.setVisible(true);
+
+            if (viewReportsButton != null) viewReportsButton.setVisible(false);
         }
 
         if ("citizen".equals(role)) {
             citizenBox.setVisible(true);
+            problemReportBox.setVisible(true);
         }
+    }
 
-        if ("chief".equals(role)) {
-            managementBox.setVisible(true);
-            policemanActionsBox.setVisible(true);
-            reportBox.setVisible(true);
-            onRefreshPendingUsers();
+    private void setupMapBridge(String username) {
+        try {
+            JSObject window = (JSObject) webEngine.executeScript("window");
 
-            pendingUsersBox.setVisible(true);
+            MapBridge bridge = new MapBridge(username, webEngine);
+            window.setMember("javaBridge", bridge);
+
+            System.out.println(" MapBridge ustawiony dla użytkownika: " + username);
+
+            PauseTransition pause = new PauseTransition(Duration.millis(800));
+            pause.setOnFinished(e -> {
+                if (webEngine != null) {
+                    webEngine.executeScript("console.log('JavaBridge powinien być gotowy');");
+                }
+            });
+            pause.play();
+
+        } catch (Exception e) {
+            System.err.println("Błąd setupMapBridge: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -312,11 +386,84 @@ public class Controller {
 
     @FXML
     protected void onSendMessageClicked() {
-        String res = send("SEND_MSG|" + currentUser + "|"
-                + recipientComboBox.getValue() + "|"
-                + messageTextArea.getText().replace("|", "_"));
+        if (currentUser == null) {
+            showPopup("Błąd", "Musisz być zalogowany");
+            return;
+        }
 
-        showPopup("Wiadomość", res);
+        String res = send("GET_USERS|" + currentUser);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Błąd", "Nie udało się pobrać listy użytkowników: " + res);
+            return;
+        }
+
+        String data = res.substring(8).trim();
+        if (data.isBlank()) {
+            showPopup("Błąd", "Brak użytkowników w systemie");
+            return;
+        }
+
+        List<String> policeDisplay = new ArrayList<>();
+        List<String> policeLogins = new ArrayList<>();
+
+        for (String entry : data.split(";;")) {
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty() || trimmed.equals(currentUser)) continue;
+
+            String[] parts = trimmed.split("\\|");
+            String username = parts[0].trim();
+            String role = parts.length > 1 ? parts[1].trim() : "";
+
+            if ("man".equals(role) || "chief".equals(role)) {
+                String roleName = "chief".equals(role) ? "Komendant" : "Policjant";
+                String display = username + " (" + roleName + ")";
+
+                policeDisplay.add(display);
+                policeLogins.add(username);
+            }
+        }
+
+        if (policeDisplay.isEmpty()) {
+            showPopup("Brak odbiorców", "Nie znaleziono policjantów ani komendanta w systemie.");
+            return;
+        }
+
+        ListView<CheckBox> listView = new ListView<>();
+        for (int i = 0; i < policeDisplay.size(); i++) {
+            CheckBox cb = new CheckBox(policeDisplay.get(i));
+            cb.setUserData(policeLogins.get(i));
+            listView.getItems().add(cb);
+        }
+
+        Button nextBtn = new Button("Dalej →");
+        VBox vbox = new VBox(10,
+                new Label("Wybierz odbiorców (tylko służba):"),
+                listView,
+                nextBtn);
+        vbox.setPadding(new Insets(15));
+
+        Stage stage1 = new Stage();
+        stage1.setTitle("Wybór odbiorców");
+        stage1.setScene(new Scene(vbox, 420, 550));
+        stage1.show();
+
+        nextBtn.setOnAction(e -> {
+            List<String> selected = new ArrayList<>();
+            for (CheckBox cb : listView.getItems()) {
+                if (cb.isSelected()) {
+                    selected.add((String) cb.getUserData());
+                }
+            }
+
+            if (selected.isEmpty()) {
+                showPopup("Błąd", "Wybierz co najmniej jednego odbiorcę");
+                return;
+            }
+
+            stage1.close();
+            showMessageInputDialog(selected);
+        });
     }
 
     @FXML
@@ -376,6 +523,7 @@ public class Controller {
             ticketsListView.getItems().add(display);
         }
     }
+
     @FXML
     protected void onCreateAccountClicked() {
 
@@ -626,12 +774,53 @@ public class Controller {
     @FXML
     protected void initialize() {
 
-        WebView webView = new WebView();
-        webView.setContextMenuEnabled(false);
-        webView.setZoom(1.0);
+        if (managementBox != null) managementBox.managedProperty().bind(managementBox.visibleProperty());
+        if (policemanActionsBox != null) policemanActionsBox.managedProperty().bind(policemanActionsBox.visibleProperty());
+        if (reportBox != null) reportBox.managedProperty().bind(reportBox.visibleProperty());
+        if (citizenBox != null) citizenBox.managedProperty().bind(citizenBox.visibleProperty());
+        if (messagingBox != null) messagingBox.managedProperty().bind(messagingBox.visibleProperty());
+        if (problemReportBox != null) problemReportBox.managedProperty().bind(problemReportBox.visibleProperty());
+        if (pendingUsersBox != null) pendingUsersBox.managedProperty().bind(pendingUsersBox.visibleProperty());
+        if (loginPane != null) loginPane.managedProperty().bind(loginPane.visibleProperty());
+        if (contentBox != null) contentBox.managedProperty().bind(contentBox.visibleProperty());
+        if (viewReportsButton !=null) viewReportsButton.managedProperty().bind(viewReportsButton.visibleProperty());
 
-        webView.setPrefWidth(1400);
-        webView.setPrefHeight(900);
+        webView.setContextMenuEnabled(false);
+        webEngine = webView.getEngine();
+
+        webEngine.load(getClass().getResource("/map.html").toExternalForm());
+
+        webEngine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
+
+            if (newState == Worker.State.SUCCEEDED) {
+
+                Platform.runLater(() -> {
+
+                    webView.requestLayout();
+                    forceMapResize();
+
+                    PauseTransition pause1 = new PauseTransition(Duration.millis(300));
+                    pause1.setOnFinished(e -> forceMapResize());
+                    pause1.play();
+
+                    PauseTransition pause2 = new PauseTransition(Duration.millis(800));
+                    pause2.setOnFinished(e -> forceMapResize());
+                    pause2.play();
+
+                    if (currentUser != null) {
+                        setupMapBridge(currentUser);
+                    } else {
+                        setupMapBridge("guest");
+                    }
+                });
+            }
+        });
+
+        webView.widthProperty().addListener((obs, oldVal, newVal) -> forceMapResize());
+        webView.heightProperty().addListener((obs, oldVal, newVal) -> forceMapResize());
+        mapContainer.widthProperty().addListener((obs, oldVal, newVal) -> forceMapResize());
+        mapContainer.heightProperty().addListener((obs, oldVal, newVal) -> forceMapResize());
+
         webView.setMaxWidth(Double.MAX_VALUE);
         webView.setMaxHeight(Double.MAX_VALUE);
 
@@ -639,37 +828,6 @@ public class Controller {
         AnchorPane.setBottomAnchor(webView, 0.0);
         AnchorPane.setLeftAnchor(webView, 0.0);
         AnchorPane.setRightAnchor(webView, 0.0);
-
-        mapContainer.getChildren().clear();
-        mapContainer.getChildren().add(webView);
-
-        WebEngine engine = webView.getEngine();
-
-        engine.load(getClass().getResource("/map.html").toExternalForm());
-
-        engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
-            if (newState == Worker.State.SUCCEEDED) {
-                Platform.runLater(() -> {
-                    setupJavaBridge(engine);
-                    forceMapResizeAggressive(engine);
-                });
-            }
-        });
-
-        mapContainer.widthProperty().addListener((obs, old, n) -> forceMapResizeAggressive(engine));
-        mapContainer.heightProperty().addListener((obs, old, n) -> forceMapResizeAggressive(engine));
-
-        Platform.runLater(() -> {
-            if (mapContainer.getScene() != null && mapContainer.getScene().getWindow() != null) {
-                var stage = mapContainer.getScene().getWindow();
-                stage.widthProperty().addListener((obs, o, n) -> forceMapResizeAggressive(engine));
-                stage.heightProperty().addListener((obs, o, n) -> forceMapResizeAggressive(engine));
-
-                PauseTransition initial = new PauseTransition(Duration.millis(600));
-                initial.setOnFinished(e -> forceMapResizeAggressive(engine));
-                initial.play();
-            }
-        });
 
         pendingUsersListView.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2) {
@@ -697,6 +855,16 @@ public class Controller {
                 }
             }
         });
+
+        Platform.runLater(() -> {
+            PauseTransition pt = new PauseTransition(Duration.millis(800));
+            pt.setOnFinished(e -> forceMapResize());
+            pt.play();
+        });
+
+        if (logoutButton != null) logoutButton.setVisible(false);
+        if (patrolButton != null) patrolButton.setVisible(false);
+        if (changepasswordButton != null) changepasswordButton.setVisible(false);
     }
 
     @FXML
@@ -1074,8 +1242,6 @@ public class Controller {
                 locationField.setPromptText("Adres akcji patrolu");
 
                 Button sendBtn = new Button("📍 Wyślij patrol");
-                Button sendFromIncidentBtn = new Button("🚨 Ze zgłoszenia");
-                Button checkBtn = new Button("📏 Sprawdź");
                 Button deleteBtn = new Button("🗑 Usuń");
 
                 Label distanceLabel = new Label();
@@ -1091,10 +1257,6 @@ public class Controller {
                     showPopup("Patrol", res);
                 });
 
-                checkBtn.setOnAction(e -> {
-                    double distance = Math.random() * 20;
-                    distanceLabel.setText("Odległość: " + String.format("%.1f km", distance));
-                });
 
                 deleteBtn.setOnAction(e -> {
                     String res = send("DELETE_PATROL|" + currentUser + "|" + patrolId);
@@ -1107,8 +1269,6 @@ public class Controller {
                         actionsBox,
                         locationField,
                         sendBtn,
-                        sendFromIncidentBtn,
-                        checkBtn,
                         deleteBtn,
                         distanceLabel
                 );
@@ -1228,6 +1388,81 @@ public class Controller {
                     "Błąd",
                     "Nie udało się otworzyć mapy"
             );
+        }
+    }
+
+    @FXML
+    protected void onCheckPatrolLocationsClicked() {
+
+        if (!"chief".equals(currentRole)) {
+            showPopup("Błąd", "Tylko komendant może przeglądać lokalizacje patroli");
+            return;
+        }
+
+        if (webEngine == null) {
+            showPopup("Błąd", "Mapa nie jest załadowana");
+            return;
+        }
+
+        loadAllPatrolLocationsOnMainMap();
+    }
+
+    private void loadAllPatrolLocationsOnMainMap() {
+
+        System.out.println("📡 Komendant pobiera lokalizacje patroli...");
+
+        try (Socket socket = new Socket("localhost", 5556);
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
+            out.println("GET_PATROL_LOCATIONS|" + currentUser);
+            String response = in.readLine();
+
+            if (response != null && response.startsWith("SUCCESS:")) {
+                String data = response.substring(8);
+
+                webEngine.executeScript("clearAllPins();");
+
+                if (data != null && !data.trim().isEmpty()) {
+                    int count = 0;
+                    for (String line : data.split(";;")) {
+                        if (line.trim().isEmpty()) continue;
+
+                        String[] p = line.split("\\|");
+                        if (p.length >= 4) {
+                            try {
+                                String username = p[1];
+                                double lat = Double.parseDouble(p[2]);
+                                double lon = Double.parseDouble(p[3]);
+
+                                webEngine.executeScript(
+                                        "updatePatrolPin(" + lon + ", " + lat + ", '" +
+                                                username.replace("'", "\\'") + "');"
+                                );
+                                count++;
+                            } catch (Exception ex) {
+                                System.out.println("Błąd linii: " + line);
+                            }
+                        }
+                    }
+                    System.out.println(" Dodano " + count + " lokalizacji patroli na mapie");
+
+                    if (count > 0) {
+                        showPopup("Lokalizacje patroli", "Pomyślnie wczytano " + count + " aktywnych patroli.");
+                    } else {
+                        showPopup("Lokalizacje patroli", "Brak aktywnych lokalizacji patroli.");
+                    }
+                } else {
+                    showPopup("Lokalizacje patroli", "Brak aktywnych lokalizacji patroli.");
+                }
+
+            } else {
+                showPopup("Błąd", "Nieprawidłowa odpowiedź serwera");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            showPopup("Błąd", "Brak połączenia z serwerem");
         }
     }
 
@@ -1420,6 +1655,114 @@ public class Controller {
         stage.setTitle("Moje raporty");
         stage.setScene(new Scene(root, 800, 400));
         stage.show();
+    }
+
+    @FXML
+    protected void onPatrolInfoClicked() {
+
+        String res =
+                send("GET_MY_PATROL|" + currentUser);
+
+        if (!res.startsWith("SUCCESS:")) {
+            showPopup("Patrol", res);
+            return;
+        }
+
+        String data = res.substring(8);
+
+        if (data.equals("BRAK_PATROLU")) {
+
+            showPopup(
+                    "Patrol",
+                    "Nie jesteś w patrolu"
+            );
+
+            return;
+        }
+
+        Alert alert =
+                new Alert(Alert.AlertType.INFORMATION);
+
+        alert.setTitle("Mój patrol");
+
+        TextArea area = new TextArea(
+                data.replace(";;", "\n")
+        );
+
+        area.setEditable(false);
+
+        alert.getDialogPane().setContent(area);
+
+        alert.showAndWait();
+    }
+
+    private void loadAllPatrolLocations(WebEngine engine) {
+        try (Socket socket = new Socket("localhost", 5556);
+             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
+            out.println("GET_PATROL_LOCATIONS|" + currentUser);
+            String response = in.readLine();
+
+            if (response != null && response.startsWith("SUCCESS:")) {
+                String data = response.substring(8);
+
+                // Czyścimy mapę i dodajemy wszystkie pinezki
+                engine.executeScript("clearAllPins();");
+
+                if (!data.isBlank()) {
+                    for (String line : data.split(";;")) {
+                        if (line.trim().isEmpty()) continue;
+
+                        String[] parts = line.split("\\|");
+                        if (parts.length >= 4) {
+                            try {
+                                String username = parts[1];
+                                double lat = Double.parseDouble(parts[2]);
+                                double lon = Double.parseDouble(parts[3]);
+
+                                engine.executeScript(
+                                        "updatePatrolPin(" + lon + ", " + lat + ", '" + username + "');"
+                                );
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                } else {
+                    engine.executeScript("alert('Brak aktywnych lokalizacji patroli');");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            engine.executeScript("alert('Błąd połączenia z serwerem');");
+        }
+    }
+
+    @FXML
+    protected void onRefreshUsersClicked() {
+        if (currentUser == null) return;
+
+        String res = send("GET_USERS|" + currentUser);
+
+        recipientComboBox.getItems().clear();
+
+        if (res.startsWith("SUCCESS:")) {
+            String data = res.substring(8).trim();
+
+            if (data.isBlank()) {
+                recipientComboBox.getItems().add("Brak innych użytkowników");
+            } else {
+                recipientComboBox.getItems().addAll(data.split(";;"));
+
+                // Automatycznie wybierz pierwszego użytkownika
+                if (!recipientComboBox.getItems().isEmpty()) {
+                    recipientComboBox.getSelectionModel().select(0);
+                }
+            }
+        } else {
+            recipientComboBox.getItems().add("Błąd pobierania listy");
+            showPopup("Błąd", res);
+        }
     }
 
     private void showReportDetails(String report, Stage parentStage){
@@ -1705,6 +2048,7 @@ public class Controller {
             }
         }
     }
+
     private void showPendingUserDialog(String userData) {
 
         String[] parts = userData.split(" \\| ");
@@ -1781,6 +2125,7 @@ public class Controller {
             }
         });
     }
+
     private String send(String cmd) {
         try (Socket socket = new Socket("localhost", 5556);
              PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
@@ -1940,7 +2285,7 @@ public class Controller {
 
         if (!res.startsWith("SUCCESS:")) {
 
-            label.setText("📭 Brak aktywnej akcji");
+            label.setText(" Brak aktywnej akcji");
             label.setStyle("-fx-text-fill: gray;");
 
             return;
@@ -1950,7 +2295,7 @@ public class Controller {
 
         if (data.isBlank() || data.equals("Brak akcji")) {
 
-            label.setText("📭 Brak aktywnej akcji");
+            label.setText(" Brak aktywnej akcji");
             label.setStyle("-fx-text-fill: gray;");
 
             return;
@@ -1965,7 +2310,7 @@ public class Controller {
                 parts.length > 1 ? parts[1] : "Nieznany adres";
 
         label.setText(
-                "🚨 " + status + "\n📍 " + address
+                " " + status + "\n " + address
         );
 
         label.setStyle(
@@ -2007,7 +2352,7 @@ public class Controller {
 
                 if (s.length < 2) continue;
 
-                list.getItems().add("🚨 " + s[0] + " → " + s[1]);
+                list.getItems().add(" " + s[0] + " → " + s[1]);
             }
         }
 
@@ -2035,17 +2380,6 @@ public class Controller {
         loadStats("MONTH");
     }
 
-
-    private void setupJavaBridge(WebEngine engine) {
-        try {
-            JSObject window = (JSObject) engine.executeScript("window");
-            String user = currentUser != null ? currentUser : "guest";
-            window.setMember("javaBridge", new MapBridge(user));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
     private void forceMapResizeAggressive(WebEngine engine) {
         Platform.runLater(() -> {
             try {
@@ -2071,5 +2405,65 @@ public class Controller {
             } catch (Exception ignored) {}
         });
     }
+
+    private void forceMapResize() {
+        if (webEngine == null) return;
+
+        Platform.runLater(() -> {
+            try {
+                webEngine.executeScript("if (window.forceResize) window.forceResize();");
+            } catch (Exception ignored) {}
+        });
+    }
+
+    private void showMessageInputDialog(List<String> receivers) {
+        TextArea messageArea = new TextArea();
+        messageArea.setPromptText("Wpisz treść wiadomości...");
+        messageArea.setWrapText(true);
+        messageArea.setPrefHeight(150);
+
+        Label info = new Label("Wiadomość zostanie wysłana do " + receivers.size() + " odbiorców:");
+        info.setStyle("-fx-font-weight: bold;");
+
+        VBox vbox = new VBox(10, info, messageArea);
+        vbox.setPadding(new Insets(15));
+
+        Button sendBtn = new Button("✉️ Wyślij do wszystkich");
+
+        Stage stage = new Stage();
+        stage.setTitle("Napisz wiadomość");
+        stage.setScene(new Scene(vbox, 450, 300));
+        stage.show();
+
+        sendBtn.setOnAction(e -> {
+            String message = messageArea.getText().trim();
+            if (message.isBlank()) {
+                showPopup("Błąd", "Wiadomość nie może być pusta");
+                return;
+            }
+
+            int successCount = 0;
+            for (String receiver : receivers) {
+                String res = send("SEND_MSG|" + currentUser + "|" +
+                        receiver + "|" +
+                        message.replace("|", "_").replace("\n", " "));
+
+                if (res.startsWith("SUCCESS")) {
+                    successCount++;
+                }
+            }
+
+            stage.close();
+            showPopup("Wiadomości wysłane",
+                    "Pomyślnie wysłano do " + successCount + " z " + receivers.size() + " odbiorców.");
+
+            onRefreshMessagesClicked();
+        });
+
+        VBox root = (VBox) vbox.getParent();
+        if (root != null) root.getChildren().add(sendBtn);
+        else vbox.getChildren().add(sendBtn);
+    }
+
 }
 
