@@ -234,11 +234,6 @@
                                       prefHeight="150"
                                       prefWidth="320"/>
 
-                            <TextField fx:id="ticketIdField"
-                                       promptText="ID mandatu"/>
-
-                            <Button text="💳 Opłać mandat"
-                                    onAction="#onPayTicketClicked"/>
 
                         </VBox>
 
@@ -248,10 +243,6 @@
                               visible="false">
 
                             <Label text="Zgłoszenia"/>
-
-                            <TextArea fx:id="problemReportTextArea"
-                                      prefHeight="100"
-                                      prefWidth="300"/>
 
                             <Button text="📢 Zgłoś problem"
                                     onAction="#onReportProblemClicked"/>

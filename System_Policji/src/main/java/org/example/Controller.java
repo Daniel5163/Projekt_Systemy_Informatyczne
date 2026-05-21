@@ -48,6 +48,8 @@ import javafx.application.Platform;
 import javafx.animation.PauseTransition;
 import javafx.util.Duration;
 
+import java.util.Arrays;
+
 import javafx.stage.Window;
 
 public class Controller {
@@ -253,6 +255,14 @@ public class Controller {
             citizenBox.setVisible(true);
             problemReportBox.setVisible(true);
         }
+
+        Platform.runLater(() -> {
+            onRefreshPendingUsers();
+
+            if ("chief".equals(role)) {
+                onLoadAllUsers();
+            }
+        });
     }
 
     private void setupMapBridge(String username) {
@@ -436,7 +446,7 @@ public class Controller {
             listView.getItems().add(cb);
         }
 
-        Button nextBtn = new Button("Dalej →");
+        Button nextBtn = new Button("Dalej ");
         VBox vbox = new VBox(10,
                 new Label("Wybierz odbiorców (tylko służba):"),
                 listView,
@@ -699,22 +709,27 @@ public class Controller {
 
     @FXML
     protected void onRefreshPendingUsers() {
+        if (currentUser == null || !"chief".equals(currentRole)) {
+            return;
+        }
 
         String res = send("GET_PENDING_USERS|" + currentUser);
+        System.out.println(" GET_PENDING_USERS odpowiedź: " + res);
+
+        pendingUsersListView.getItems().clear();
 
         if (!res.startsWith("SUCCESS:")) {
-            showPopup("Błąd", res);
+            pendingUsersListView.getItems().add("Błąd: " + res);
             return;
         }
 
-        String data = res.substring(8);
+        String data = res.substring(8).trim();
 
-        if (data.isBlank()) {
-            pendingUsersListView.getItems().setAll("Brak oczekujących kont");
-            return;
+        if (data.isBlank() || "EMPTY".equals(data)) {
+            pendingUsersListView.getItems().add(" Brak oczekujących kont");
+        } else {
+            pendingUsersListView.getItems().addAll(Arrays.asList(data.split(";;")));
         }
-
-        pendingUsersListView.getItems().setAll(data.split(";;"));
     }
 
     @FXML
@@ -1707,7 +1722,6 @@ public class Controller {
             if (response != null && response.startsWith("SUCCESS:")) {
                 String data = response.substring(8);
 
-                // Czyścimy mapę i dodajemy wszystkie pinezki
                 engine.executeScript("clearAllPins();");
 
                 if (!data.isBlank()) {
@@ -1754,7 +1768,6 @@ public class Controller {
             } else {
                 recipientComboBox.getItems().addAll(data.split(";;"));
 
-                // Automatycznie wybierz pierwszego użytkownika
                 if (!recipientComboBox.getItems().isEmpty()) {
                     recipientComboBox.getSelectionModel().select(0);
                 }
@@ -1862,7 +1875,7 @@ public class Controller {
     private String extractReportId(String report) {
         try {
             String[] parts = report.split("\\|");
-            return parts[0].trim(); // OK
+            return parts[0].trim();
         } catch (Exception e) {
             return "";
         }

@@ -357,23 +357,28 @@ class UserManager {
             return;
         }
 
-        if (pendingUsers.isEmpty()) {
-            out.println("SUCCESS:");
-            return;
+        try (Connection conn = DataBase.connect()) {
+            if (pendingUsers.isEmpty()) {
+                out.println("SUCCESS:");
+                return;
+            }
+
+            List<String> list = new ArrayList<>();
+
+            for (String[] u : pendingUsers) {
+                String username = u[0];
+                String role = u[2];
+                String policeId = (u.length > 3 && u[3] != null) ? u[3] : "-";
+
+                list.add(username + " | " + role + " | ID: " + policeId);
+            }
+
+            out.println("SUCCESS:" + String.join(";;", list));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            out.println("ERROR:Błąd bazy");
         }
-
-        List<String> list = new ArrayList<>();
-
-        for (String[] u : pendingUsers) {
-
-            String username = u[0];
-            String role = u[2];
-            String policeId = u.length > 3 ? u[3] : "-";
-
-            list.add(username + " | " + role + " | ID: " + policeId);
-        }
-
-        out.println("SUCCESS:" + String.join(";;", list));
     }
 
     public void getAllUsers(String[] t, PrintWriter out) {
@@ -476,8 +481,8 @@ class UserManager {
         }
 
         String username = t[1];
-        String oldPass = t[2];
-        String newPass = t[3];
+        String oldPassPlain = t[2];
+        String newPassPlain = t[3];
 
         if (!logged(username)) {
             out.println("ERROR:Nie jesteś zalogowany");
@@ -489,9 +494,7 @@ class UserManager {
             PreparedStatement ps = conn.prepareStatement(
                     "SELECT password FROM users WHERE username = ?"
             );
-
             ps.setString(1, username);
-
             ResultSet rs = ps.executeQuery();
 
             if (!rs.next()) {
@@ -501,21 +504,29 @@ class UserManager {
 
             String dbPass = rs.getString("password");
 
-            if (!dbPass.equals(oldPass)) {
+            String oldPassHash = hash(oldPassPlain);
+
+            boolean passwordCorrect = dbPass.equals(oldPassHash);
+
+            if (!passwordCorrect) {
+                passwordCorrect = dbPass.equals(oldPassPlain);
+            }
+
+            if (!passwordCorrect) {
                 out.println("ERROR:Niepoprawne stare hasło");
                 return;
             }
 
+            String newPassHash = hash(newPassPlain);
+
             PreparedStatement update = conn.prepareStatement(
                     "UPDATE users SET password = ? WHERE username = ?"
             );
-
-            update.setString(1, newPass);
+            update.setString(1, newPassHash);
             update.setString(2, username);
-
             update.executeUpdate();
 
-            pass.put(username, newPass);
+            pass.put(username, newPassHash);
 
             out.println("SUCCESS:Hasło zmienione");
 

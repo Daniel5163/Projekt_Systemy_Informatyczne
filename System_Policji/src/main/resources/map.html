@@ -12,6 +12,13 @@
             margin: 0;
             padding: 0;
         }
+
+        /* Efekt pulsowania pinezki */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.25); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -22,39 +29,51 @@
     var currentUser = null;
     var patrolPins = {};
 
-  window.updatePatrolPin = function(lon, lat, username) {
-    console.log(`updatePatrolPin: ${username} → lat=${lat}, lon=${lon}`);
+    // === BARDZO WIDOCZNA PINEZKA DLA PATROLI ===
+    window.updatePatrolPin = function(lon, lat, username) {
+        console.log(`updatePatrolPin: ${username} → lat=${lat}, lon=${lon}`);
 
-    if (!vectorSource) {
-        console.warn("vectorSource nie jest gotowy!");
-        return;
-    }
+        if (!vectorSource) {
+            console.warn("vectorSource nie jest gotowy!");
+            return;
+        }
 
-    if (patrolPins[username]) {
-        vectorSource.removeFeature(patrolPins[username]);
-    }
+        // Usuń starą pinezkę tego użytkownika
+        if (patrolPins[username]) {
+            vectorSource.removeFeature(patrolPins[username]);
+        }
 
-    const feature = new ol.Feature({
-        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
-    });
+        const feature = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat])),
+            username: username
+        });
 
-    if (username === currentUser) {
-        feature.setStyle(new ol.style.Style({
+        // Styl dla komendanta / wszystkich patroli
+        const patrolStyle = new ol.style.Style({
             image: new ol.style.Icon({
-                src: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-                scale: 0.09,
-                anchor: [0.5, 1]
+                src: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // policyjna czapka
+                scale: 0.13,           // DUŻO WIĘKSZA
+                anchor: [0.5, 1],
+                opacity: 1
+            }),
+            text: new ol.style.Text({
+                text: username.length > 8 ? username.substring(0,6) + ".." : username,
+                font: 'bold 14px Arial',
+                fill: new ol.style.Fill({ color: '#ffffff' }),
+                stroke: new ol.style.Stroke({ color: '#000000', width: 4 }),
+                offsetY: -55,
+                backgroundFill: new ol.style.Fill({ color: 'rgba(0,0,0,0.7)' }),
+                padding: [3, 6, 3, 6]
             })
-        }));
-    }
+        });
 
-    vectorSource.addFeature(feature);
-    patrolPins[username] = feature;
+        feature.setStyle(patrolStyle);
+        vectorSource.addFeature(feature);
+        patrolPins[username] = feature;
 
-    if (map) map.render();
-    console.log(" Pinezka zaktualizowana dla " + username);
-};
-
+        if (map) map.render();
+        console.log("✓ Duża pinezka patrolu dodana dla: " + username);
+    };
 
     window.clearAllPins = function() {
         console.log(" clearAllPins");
@@ -78,7 +97,11 @@
     function initMap() {
         map = new ol.Map({
             target: 'map',
-            layers: [new ol.layer.Tile({ source: new ol.source.OSM() })],
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                })
+            ],
             view: new ol.View({
                 center: ol.proj.fromLonLat([21.0122, 52.2297]),
                 zoom: 10
@@ -87,14 +110,13 @@
 
         vectorSource = new ol.source.Vector();
         map.addLayer(new ol.layer.Vector({
-            source: vectorSource
+            source: vectorSource,
+            style: null // używamy indywidualnych stylów
         }));
 
+        // Kliknięcie na mapie (wysyłanie lokalizacji)
         map.on('singleclick', function(evt) {
-            console.log(" Kliknięto na mapie!");
-
             if (!currentUser) {
-                console.log(" Brak currentUser - nie jesteś zalogowany jako policjant");
                 alert("Musisz być zalogowany jako policjant!");
                 return;
             }
@@ -103,18 +125,14 @@
             const lon = coords[0];
             const lat = coords[1];
 
-            console.log(` Kliknięto współrzędne: ${lat}, ${lon} | User: ${currentUser}`);
-
             if (window.javaBridge) {
-                console.log(" javaBridge znaleziony - wywołuję sendLocation...");
                 window.javaBridge.sendLocation(lat, lon);
             } else {
-                console.error(" javaBridge NIE ISTNIEJE! Most Java-JS nie działa.");
-                alert("Błąd: javaBridge nie jest dostępny!");
+                console.error("javaBridge nie jest dostępny!");
             }
         });
 
-        console.log(" Mapa OpenLayers zainicjalizowana pomyślnie");
+        console.log("Mapa OpenLayers zainicjalizowana - gotowa na widoczne pinezki");
     }
 
     window.onload = initMap;
